@@ -1545,6 +1545,7 @@ async function cargoFetch(path, opts = {}){
   const headers = { 'Content-Type': 'application/json' };
   // Cargo uses `token <hex>` not `Bearer <jwt>`
   headers['Authorization'] = 'token ' + token;
+  console.log('[TrackLens][Cargo] →', opts.method || 'GET', url.replace(base, '<proxy>'));
   const resp = await fetch(url, {
     method: opts.method || 'GET',
     headers,
@@ -1554,25 +1555,54 @@ async function cargoFetch(path, opts = {}){
   const text = await resp.text();
   try{ data = JSON.parse(text); }catch{ data = { raw: text }; }
   if(!resp.ok){
-    const msg = data?.detail || data?.message || data?.error || `HTTP ${resp.status}`;
+    // Try a wide range of common Cargo / Django REST error shapes
+    let msg = data?.detail
+      || data?.message
+      || data?.error
+      || data?.errors
+      || (data?.non_field_errors && data.non_field_errors.join(', '))
+      || `HTTP ${resp.status}`;
+    if(typeof msg === 'object') msg = JSON.stringify(msg);
+    console.error('[TrackLens][Cargo] ←', resp.status, resp.statusText, '| URL:', url.replace(base, '<proxy>'), '| Body:', data);
     const err = new Error('Cargo: ' + msg);
     err.status = resp.status;
     err.body = data;
+    err.url = url.replace(base, '<proxy>');
     throw err;
   }
+  console.log('[TrackLens][Cargo] ←', resp.status, '|', Array.isArray(data) ? data.length + ' items' : (data.count != null ? data.count + ' total' : 'ok'));
   return data;
 }
 
 // Find the internal cargo shipment_id from an AWB.
-// Endpoint: GET /api/shipment-list/?status=ready_to_ship&waybill_no={awb}&entity=shipment
-// Response: { results: [ { id, waybill_no, ... } ] } (paginated DRF list)
+// Endpoint: GET /api/shipment-list/?...&waybill_no={awb}&entity=shipment
+// Cargo's validator rejects calls without status + date range, so we mirror the
+// exact query shape their panel uses (captured via DevTools).
 async function cargoFindShipmentByAwb(awb){
-  // We don't filter by status — order may already be in transit/delivered when we look it up.
-  // Page size 5 is enough; AWB uniquely identifies a shipment.
-  const path = `/shipment-list/?page=1&page_size=5&waybill_no=${encodeURIComponent(awb)}&entity=shipment`;
-  const data = await cargoFetch(path);
-  // DRF paginated: { count, next, previous, results: [...] }
-  // OR direct array — handle both shapes
+  const today = new Date();
+  // Wide window — 6 months back. AWB is unique so this just satisfies the validator.
+  const sixMonthsAgo = new Date(today.getTime() - 180 * 24 * 60 * 60 * 1000);
+  const fmt = d => d.toISOString().slice(0, 10);
+  const qs = new URLSearchParams({
+    page: '1',
+    page_size: '5',
+    status: 'ready_to_ship',
+    created_at_after: fmt(sixMonthsAgo),
+    created_at_before: fmt(today),
+    waybill_no: awb,
+    entity: 'shipment'
+  });
+  let data;
+  try{
+    data = await cargoFetch('/shipment-list/?' + qs.toString());
+  } catch(err){
+    // If status=ready_to_ship excludes the order (already shipped/delivered),
+    // retry without status filter
+    if(err.status === 404 || /not\s*found/i.test(err.message || '')){
+      qs.delete('status');
+      data = await cargoFetch('/shipment-list/?' + qs.toString());
+    } else throw err;
+  }
   const list = Array.isArray(data) ? data : (data.results || []);
   if(list.length === 0) throw new Error(`No Cargo shipment found for AWB ${awb}`);
   const match = list.find(s => String(s.waybill_no) === String(awb)) || list[0];
@@ -1645,11 +1675,22 @@ async function _streamDownload(resp, awb, prefix, shipmentId){
 
 /* ----- Auth verification (instead of login, since Cargo tokens are panel-generated) ----- */
 async function cargoVerifyToken(){
-  // Hit the lightest authenticated endpoint we have to confirm the token works.
-  // We use shipment-list with page_size=1 — minimal payload, doesn't require any specific shipment.
-  const data = await cargoFetch('/shipment-list/?page=1&page_size=1&entity=shipment');
+  // Hit shipment-list with the same query shape Cargo's own UI uses, so we don't
+  // accidentally trigger their server-side validators. Captured from a working
+  // panel request: page, page_size, status, created_at_after, created_at_before, entity.
+  const today = new Date();
+  const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const fmt = d => d.toISOString().slice(0, 10);  // YYYY-MM-DD
+  const qs = new URLSearchParams({
+    page: '1',
+    page_size: '1',
+    status: 'ready_to_ship',
+    created_at_after: fmt(monthAgo),
+    created_at_before: fmt(today),
+    entity: 'shipment'
+  });
+  const data = await cargoFetch('/shipment-list/?' + qs.toString());
   const verifiedAt = new Date().toISOString();
-  // Some response shapes include account info; capture if present
   const accountInfo = {
     verifiedAt,
     totalShipments: (data.count != null ? data.count : (Array.isArray(data) ? data.length : null))
