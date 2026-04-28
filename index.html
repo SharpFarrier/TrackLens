@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>TrackLenses — Honey Touch</title>
+<title>TrackLens — Honey Touch</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -1850,22 +1850,40 @@ async function findFileId(name){
   return j.files && j.files[0] ? j.files[0].id : null;
 }
 
+// Serialize Drive writes — Drive's create-then-PATCH flow can race when multiple
+// writers hit the same filename concurrently. We queue writes per-filename so
+// the second writer sees the first writer's create result.
+const _driveWriteQueue = new Map(); // name -> Promise chain tail
+
 async function writeDriveJSON(name, data){
-  if(!State.drive.accessToken) throw new Error('not connected');
+  if(!State.drive.accessToken) throw new Error('Drive not connected');
+
+  const prev = _driveWriteQueue.get(name) || Promise.resolve();
+  const next = prev
+    .catch(()=>{})  // a previous failure shouldn't block subsequent attempts
+    .then(() => _writeDriveJSONInner(name, data));
+
+  _driveWriteQueue.set(name, next);
+  // Clean up the map when this write completes
+  next.finally(() => {
+    if(_driveWriteQueue.get(name) === next) _driveWriteQueue.delete(name);
+  });
+  return next;
+}
+
+async function _writeDriveJSONInner(name, data){
   const existingId = await findFileId(name);
   const metadata = existingId
-    ? null
+    ? { name }                                    // PATCH still wants a metadata part
     : { name, parents: [DRIVE_FOLDER_ID] };
 
-  const boundary = '-------tracklens' + Date.now();
+  const boundary = '-------tracklens' + Date.now() + Math.random().toString(36).slice(2,8);
   const delim = '\r\n--' + boundary + '\r\n';
   const closeDelim = '\r\n--' + boundary + '--';
 
   let body = '';
-  if(metadata){
-    body += delim + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata);
-  }
-  body += delim + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(data) + closeDelim;
+  body += delim + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
+  body += delim + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(data) + closeDelim;
 
   const url = existingId
     ? `https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=multipart`
@@ -1879,7 +1897,16 @@ async function writeDriveJSON(name, data){
     },
     body
   });
-  if(!resp.ok) throw new Error('write failed');
+  if(!resp.ok){
+    let errText = '';
+    try{ errText = await resp.text(); }catch{}
+    const err = new Error(`Drive ${resp.status} ${resp.statusText} on ${name} (${existingId ? 'update' : 'create'}): ${errText.slice(0, 300)}`);
+    err.status = resp.status;
+    err.fileName = name;
+    err.driveResponse = errText;
+    console.error('[TrackLens] Drive write failed:', err);
+    throw err;
+  }
   State.drive.lastSync = new Date().toISOString();
   renderDriveStatus();
   return resp.json();
@@ -1903,9 +1930,13 @@ async function syncDriveNow(){
     if(State.invoices.length){
       await writeDriveJSON('tracklens_orders.json', State.invoices);
     }
+    if(State.tokens && State.tokens.shiprocket){
+      await writeDriveJSON('tracklens_tokens.json', State.tokens);
+    }
     toast('Synced to Drive', 'success');
   }catch(e){
-    toast('Sync failed: ' + e.message, 'error');
+    console.error('[TrackLens] syncDriveNow failed:', e);
+    toast('Sync failed: ' + (e.message || e), 'error', 6000);
   }
 }
 
