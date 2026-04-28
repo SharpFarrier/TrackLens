@@ -1573,7 +1573,12 @@ async function cargoFetch(path, opts = {}){
     err.url = url.replace(base, '<proxy>');
     throw err;
   }
-  console.log('[TrackLens][Cargo] ←', resp.status, '|', Array.isArray(data) ? data.length + ' items' : (data.count != null ? data.count + ' total' : 'ok'));
+  console.log('[TrackLens][Cargo] ←', resp.status, '|',
+    Array.isArray(data) ? data.length + ' items'
+      : Array.isArray(data?.data) ? data.data.length + ' items in data[]'
+      : data?.count != null ? data.count + ' total'
+      : data?.success === true ? 'success=true, keys: ' + Object.keys(data).join(',')
+      : 'shape: ' + (data ? Object.keys(data).join(',') : 'null'));
   return data;
 }
 
@@ -1586,45 +1591,85 @@ async function cargoFetch(path, opts = {}){
 // statuses by default, so this matches their behavior.
 async function cargoFindShipmentByAwb(awb){
   const today = new Date();
-  // Wide window — 1 year back. AWB is unique, the date range just satisfies Cargo's validator.
   const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
   const fmt = d => d.toISOString().slice(0, 10);
-  const qs = new URLSearchParams({
-    page: '1',
-    page_size: '5',
-    created_at_after: fmt(yearAgo),
-    created_at_before: fmt(today),
-    waybill_no: awb,
-    entity: 'shipment'
-  });
-  // Try once across all statuses. If Cargo's validator rejects (some endpoints
-  // require a status), we'd hit an error here and surface it to the user.
-  const data = await cargoFetch('/shipment-list/?' + qs.toString());
 
-  // Cargo's response shape varies. Defensive extraction.
-  const list = extractShipmentList(data);
+  // Cargo's `waybill_no=` query param doesn't filter server-side reliably.
+  // We have to iterate through plausible status filters — orders show under
+  // ready_to_ship | pickup_scheduled | in_transit | delivered, etc.
+  // For each status, we fetch up to 100 rows and look for our AWB locally.
+  const statusesToTry = [
+    'ready_to_ship', 'pickup_scheduled', 'pickup_generated',
+    'in_transit', 'out_for_delivery', 'delivered', 'rto'
+  ];
 
-  if(!list || list.length === 0){
-    console.warn('[TrackLens][Cargo] AWB lookup empty. Top-level keys:', Object.keys(data || {}), '| Raw response:', data);
-    throw new Error(`No Cargo shipment found for AWB ${awb} (searched all statuses, last 12 months)`);
+  let allTriedKeys = [];
+  let lastResponse = null;
+
+  for(const status of statusesToTry){
+    const qs = new URLSearchParams({
+      page: '1',
+      page_size: '100',
+      status,
+      created_at_after: fmt(yearAgo),
+      created_at_before: fmt(today),
+      waybill_no: awb,    // server may or may not honor this — we filter locally too
+      entity: 'shipment'
+    });
+    let data;
+    try{
+      data = await cargoFetch('/shipment-list/?' + qs.toString());
+    } catch(err){
+      // Cargo may reject some statuses with a validation error — try next
+      console.warn(`[TrackLens][Cargo] status=${status} rejected:`, err.message);
+      continue;
+    }
+    lastResponse = data;
+    const list = extractShipmentList(data);
+    if(list.length > 0){
+      allTriedKeys = Object.keys(data || {});
+      // Try common AWB field names — Cargo's row schema isn't documented
+      const awbFields = ['waybill_no', 'awb', 'awb_code', 'awb_number', 'tracking_number', 'tracking_id', 'awb_no', 'waybill'];
+      const match = list.find(s => {
+        return awbFields.some(f => String(s[f] || '') === String(awb));
+      });
+      if(match && match.id){
+        console.log(`[TrackLens][Cargo] AWB ${awb} found under status="${status}", shipment_id=${match.id}`);
+        return { shipmentId: match.id, raw: match, foundUnderStatus: status };
+      }
+      // Got rows but none match our AWB — log the first row's keys so we can identify the right field
+      if(list[0]){
+        console.warn(`[TrackLens][Cargo] status="${status}" returned ${list.length} rows but none matched AWB ${awb}. First row keys:`, Object.keys(list[0]), '| Sample row:', list[0]);
+      }
+    }
   }
-  const match = list.find(s => String(s.waybill_no) === String(awb)) || list[0];
-  if(!match.id) throw new Error('Cargo response missing shipment id. Sample row keys: ' + Object.keys(match).join(', '));
-  return { shipmentId: match.id, raw: match };
+
+  // Nothing found across all statuses — diagnostic dump
+  console.warn('[TrackLens][Cargo] AWB lookup exhausted all statuses. Last response shape:',
+    lastResponse ? Object.keys(lastResponse) : '(no response)',
+    '| Sample:', lastResponse);
+  throw new Error(`No Cargo shipment found for AWB ${awb} (tried statuses: ${statusesToTry.join(', ')})`);
 }
 
 // Try every common JSON shape Cargo might return for a list endpoint.
+// Cargo's actual shape: { success, status_code, message, data: [...], errors, meta }
 function extractShipmentList(data){
   if(!data) return [];
   if(Array.isArray(data)) return data;
+  // Cargo's enterprise wrapper — { data: [...] } where data is the array
+  if(Array.isArray(data.data)){
+    console.log('[TrackLens][Cargo] extracted from data[] →', data.data.length, 'rows');
+    return data.data;
+  }
   if(Array.isArray(data.results)) return data.results;
-  if(Array.isArray(data.data)) return data.data;
   if(data.data && Array.isArray(data.data.results)) return data.data.results;
   if(Array.isArray(data.shipments)) return data.shipments;
   if(Array.isArray(data.items)) return data.items;
-  // Last resort: any top-level array property
   for(const k of Object.keys(data)){
-    if(Array.isArray(data[k])) return data[k];
+    if(Array.isArray(data[k])){
+      console.log('[TrackLens][Cargo] extracted from fallback key →', k, '(', data[k].length, 'rows)');
+      return data[k];
+    }
   }
   return [];
 }
