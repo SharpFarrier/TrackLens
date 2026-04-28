@@ -1543,9 +1543,12 @@ async function cargoFetch(path, opts = {}){
   const token = State.settings.cargo.token;
   if(!token) throw new Error('Cargo token not set. Settings → Courier APIs → Shiprocket Cargo.');
   const headers = { 'Content-Type': 'application/json' };
-  // Cargo uses `token <hex>` not `Bearer <jwt>`
-  headers['Authorization'] = 'token ' + token;
-  console.log('[TrackLens][Cargo] →', opts.method || 'GET', url.replace(base, '<proxy>'));
+  // Cargo's current panel issues JWT tokens (start with "eyJ"). Use Bearer auth.
+  // The legacy 40-char hex tokens used `Authorization: token <hex>` — we auto-detect
+  // which format the user pasted to remain backward-compatible.
+  const isJwt = /^eyJ/.test(token);
+  headers['Authorization'] = isJwt ? ('Bearer ' + token) : ('token ' + token);
+  console.log('[TrackLens][Cargo] →', opts.method || 'GET', url.replace(base, '<proxy>'), '| auth:', isJwt ? 'Bearer JWT' : 'legacy token');
   const resp = await fetch(url, {
     method: opts.method || 'GET',
     headers,
