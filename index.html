@@ -1475,7 +1475,11 @@ const State = {
     history: []              // [{ batchId, ts, count, ... }]
   },
   // Per-invoice dispatched state. Map<invoiceId, { dispatchedAt, batchId }>
-  dispatched: {}
+  dispatched: {},
+  // Per-invoice AWB overrides. Map<invoiceId, { awb, setAt, originalAwb }>
+  // Used when InvoLens AWB is corrupted (sci notation) or missing — local fix
+  // for unblocking dispatch. Never written back to InvoLens. Survives refreshes.
+  awbOverrides: {}
 };
 
 /* Courier options - canonical list across the app */
@@ -1562,6 +1566,103 @@ function checkAwbIntegrity(awb){
 // turned out to be a corruption artifact, not a real courier difference.
 function inferCourier(_awb){ return null; }
 
+/* ------------------- AWB Overrides ------------------- */
+/* When InvoLens has a corrupted/missing AWB, the user can paste the correct one
+ * in TrackLens. The override is stored locally + on Drive (never sent back to
+ * InvoLens). Override survives refreshes. If InvoLens later catches up and
+ * matches the override, the override silently retires.
+ */
+
+function effectiveAwb(row){
+  const o = State.awbOverrides[row.id];
+  if(o && o.awb) return o.awb;
+  return row.awb || '';
+}
+
+function effectiveAwbCheck(row){
+  const eff = effectiveAwb(row);
+  if(!eff) return { ok:false, reason:'missing' };
+  return checkAwbIntegrity(eff);
+}
+
+function hasAwbOverride(row){
+  const o = State.awbOverrides[row.id];
+  return !!(o && o.awb);
+}
+
+function setAwbOverride(invoiceId, newAwb){
+  newAwb = String(newAwb || '').trim();
+  if(!newAwb) throw new Error('AWB cannot be empty');
+  const check = checkAwbIntegrity(newAwb);
+  if(!check.ok) throw new Error(`That doesn't look like a valid AWB (${check.reason}). Save anyway? — not yet supported. Type a valid AWB.`);
+  const inv = State.invoices.find(r => r.id === invoiceId);
+  if(!inv) throw new Error('Invoice not found');
+  State.awbOverrides[invoiceId] = {
+    awb: newAwb,
+    setAt: new Date().toISOString(),
+    originalAwb: inv.awb || ''
+  };
+  // Auto-tag courier if not yet set, based on the new AWB pattern
+  if(!inv.courier){
+    const sug = suggestCourierFromAwb(newAwb);
+    if(sug) inv.courier = sug;
+  }
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_orders.json', State.invoices)
+      .catch(e => console.warn('Drive write failed', e));
+  }
+}
+
+function clearAwbOverride(invoiceId){
+  delete State.awbOverrides[invoiceId];
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_orders.json', State.invoices)
+      .catch(e => console.warn('Drive write failed', e));
+  }
+}
+
+/* Returns an enriched view of the invoice with the effective AWB applied.
+ * Use this anywhere we read awb/awbOk for display or eligibility checks.
+ */
+function applyAwbOverride(row){
+  const o = State.awbOverrides[row.id];
+  if(!o || !o.awb) return row;
+  const check = checkAwbIntegrity(o.awb);
+  return Object.assign({}, row, {
+    awb: o.awb,
+    awbOk: check.ok,
+    awbIssue: check.ok ? null : check.reason,
+    _awbOverridden: true,
+    _originalAwb: row.awb || ''
+  });
+}
+
+/* Called after InvoLens refresh — if InvoLens caught up and now has a valid AWB
+ * matching the override, retire the override silently.
+ */
+function reconcileAwbOverrides(){
+  let retired = 0;
+  for(const id of Object.keys(State.awbOverrides)){
+    const inv = State.invoices.find(r => r.id === id);
+    if(!inv){
+      // Invoice no longer exists — drop the override
+      delete State.awbOverrides[id];
+      continue;
+    }
+    const o = State.awbOverrides[id];
+    if(inv.awb && checkAwbIntegrity(inv.awb).ok && inv.awb === o.awb){
+      delete State.awbOverrides[id];
+      retired++;
+    }
+  }
+  if(retired > 0){
+    console.log(`[TrackLens] Retired ${retired} AWB override(s) — InvoLens caught up`);
+    persistLocal();
+  }
+}
+
 /* ------------------- localStorage shadow ------------------- */
 function persistLocal(){
   try{
@@ -1571,7 +1672,8 @@ function persistLocal(){
       meta: State.meta,
       tokens: State.tokens,
       dispatched: State.dispatched,
-      batchHistory: State.batch.history
+      batchHistory: State.batch.history,
+      awbOverrides: State.awbOverrides
     }));
   }catch(e){
     // file:// or quota — fail silent, Drive is source of truth
@@ -1588,6 +1690,7 @@ function restoreLocal(){
     if(parsed.tokens) Object.assign(State.tokens, parsed.tokens);
     if(parsed.dispatched) State.dispatched = parsed.dispatched;
     if(parsed.batchHistory) State.batch.history = parsed.batchHistory;
+    if(parsed.awbOverrides) State.awbOverrides = parsed.awbOverrides;
   }catch(e){}
   // Defensive defaults — fields added in later versions may not be in older saves
   if(!State.settings.involens) State.settings.involens = { dataFolderId: '', invoicesFolderId: '', lastFetchedAt: null, lastModifiedTime: null };
@@ -1679,6 +1782,7 @@ function importInvoLensJSON(text, filename, opts = {}){
   State.meta.importedAt = new Date().toISOString();
   State.meta.importFilename = filename || 'involens_invoices.json';
   State.selected.clear();
+  reconcileAwbOverrides();
   persistLocal();
   renderDispatch();
   closeImportModal();
@@ -1819,7 +1923,11 @@ function showAwbCorruptionBanner(corruptedRows){
 
 /* ------------------- Render dispatch ------------------- */
 function renderDispatch(){
-  const total = State.invoices.length;
+  // Apply overrides at the entry point so all downstream code sees the
+  // effective AWB (and corrected awbOk/awbIssue). This is read-only — never
+  // mutates State.invoices.
+  const allRows = State.invoices.map(applyAwbOverride);
+  const total = allRows.length;
   $('#dispatchCount').textContent = total;
   $('#queueCount').textContent = total + ' orders';
 
@@ -1837,15 +1945,15 @@ function renderDispatch(){
   $('#dispatchEmpty').style.display = 'none';
   $('#dispatchContent').style.display = 'block';
 
-  const untagged = State.invoices.filter(r => !r.courier).length;
-  const missingAwb = State.invoices.filter(r => !r.awb).length;
-  const corruptedAwb = State.invoices.filter(r => r.awb && !r.awbOk).length;
-  const cargoReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'cargo').length;
-  const bluedartTagged = State.invoices.filter(r => r.courier === 'bluedart').length;
-  const delhiveryTagged = State.invoices.filter(r => r.courier === 'delhivery_direct' || r.courier === 'delhivery').length;
-  const labelsFetched = State.invoices.filter(r => r.lastFetchedAt).length;
+  const untagged = allRows.filter(r => !r.courier).length;
+  const missingAwb = allRows.filter(r => !r.awb).length;
+  const corruptedAwb = allRows.filter(r => r.awb && !r.awbOk).length;
+  const cargoReady = allRows.filter(r => r.awb && r.awbOk && r.courier === 'cargo').length;
+  const bluedartTagged = allRows.filter(r => r.courier === 'bluedart').length;
+  const delhiveryTagged = allRows.filter(r => r.courier === 'delhivery_direct' || r.courier === 'delhivery').length;
+  const labelsFetched = allRows.filter(r => r.lastFetchedAt).length;
   // "Ready" overall = anything tagged + good AWB
-  const ready = State.invoices.filter(r => r.awb && r.awbOk && r.courier).length;
+  const ready = allRows.filter(r => r.awb && r.awbOk && r.courier).length;
 
   $('#kpiPending').textContent = cargoReady;
   $('#kpiPendingSub').textContent = `BD: ${bluedartTagged}  ·  DL: ${delhiveryTagged}  ·  fetched: ${labelsFetched}`;
@@ -1879,7 +1987,8 @@ function renderDispatch(){
 }
 
 function filterRows(){
-  let rows = State.invoices.slice();
+  // Apply AWB overrides so filters and search see the effective AWB
+  let rows = State.invoices.map(applyAwbOverride);
 
   switch(State.filter){
     case 'ready': rows = rows.filter(r => r.awb && r.awbOk && r.courier); break;
@@ -1943,14 +2052,20 @@ function renderRow(r){
 
   const checked = State.selected.has(r.id) ? 'checked' : '';
 
+  // AWB cell — editable inline when missing or invalid
   let awbCell;
+  const isOverridden = !!r._awbOverridden;
+  const editBtn = `<button class="awb-edit-btn" data-edit-awb="${r.id}" title="Edit AWB" style="background:transparent;border:1px solid var(--line);font-size:10.5px;padding:2px 6px;border-radius:4px;color:var(--ink-2);cursor:pointer;margin-left:4px">✎ edit</button>`;
   if(!r.awb){
-    awbCell = `<span style="color:var(--red)">missing</span>`;
+    awbCell = `<span style="color:var(--red)">missing</span>${editBtn}`;
   } else if(!r.awbOk){
     const tip = r.awbIssue === 'scientific_notation'
-      ? 'Mangled by spreadsheet export — fix in InvoLens'
+      ? 'Mangled by spreadsheet export — paste correct AWB'
       : 'Malformed AWB — verify at source';
-    awbCell = `<span style="color:var(--red)" title="${tip}">${r.awb} ⚠</span>`;
+    awbCell = `<span style="color:var(--red)" title="${tip}">${r.awb} ⚠</span>${editBtn}`;
+  } else if(isOverridden){
+    const orig = r._originalAwb || '(empty)';
+    awbCell = `<span>${r.awb}</span><span class="awb-override-pill" data-clear-awb="${r.id}" title="Local override — original was ${orig}. Click to revert." style="background:#f0ede2;color:#7c5a14;font-size:9.5px;padding:1px 5px;border-radius:8px;margin-left:4px;cursor:pointer;border:1px solid #d4c995">✎ override</span>`;
   } else {
     awbCell = r.awb;
   }
@@ -1988,14 +2103,73 @@ function renderRow(r){
     fetchBtn.addEventListener('click', () => fetchLabelForRow(r.id));
   }
 
+  const editAwbBtn = tr.querySelector('[data-edit-awb]');
+  if(editAwbBtn){
+    editAwbBtn.addEventListener('click', () => openAwbEditor(r.id));
+  }
+  const clearAwbBtn = tr.querySelector('[data-clear-awb]');
+  if(clearAwbBtn){
+    clearAwbBtn.addEventListener('click', () => {
+      if(confirm(`Revert AWB override for order ${r.orderId}?\n\nOverride: ${r.awb}\nOriginal: ${r._originalAwb || '(empty)'}`)){
+        clearAwbOverride(r.id);
+        renderDispatch();
+      }
+    });
+  }
+
   return tr;
+}
+
+/* AWB editor — small modal for fixing corrupted/missing AWBs.
+ * Uses prompt() for now since we don't have a modal infrastructure for this.
+ * Could be upgraded to a proper modal later.
+ */
+function openAwbEditor(rowId){
+  const inv = State.invoices.find(x => x.id === rowId);
+  if(!inv) return;
+  const enriched = applyAwbOverride(inv);
+  const currentAwb = enriched.awb || '';
+  const originalAwb = inv.awb || '';
+
+  const promptMsg = [
+    `Order: ${inv.orderId}`,
+    `Customer: ${inv.customerName}`,
+    '',
+    originalAwb && originalAwb !== currentAwb
+      ? `InvoLens AWB:  ${originalAwb}  ← original (corrupted/invalid)`
+      : `InvoLens AWB:  ${originalAwb || '(empty)'}`,
+    enriched._awbOverridden ? `Current override: ${currentAwb}` : '',
+    '',
+    'Paste the correct AWB (14-digit number, e.g. 20894541147701):'
+  ].filter(Boolean).join('\n');
+
+  const newAwb = window.prompt(promptMsg, enriched._awbOverridden ? currentAwb : '');
+  if(newAwb === null) return;  // cancelled
+  const trimmed = newAwb.trim();
+  if(!trimmed){
+    if(confirm('Empty AWB — clear the override instead?')){
+      clearAwbOverride(rowId);
+      renderDispatch();
+      renderBatch();
+    }
+    return;
+  }
+  try{
+    setAwbOverride(rowId, trimmed);
+    toast(`AWB override saved for ${inv.orderId}`, 'success');
+    renderDispatch();
+    renderBatch();
+  } catch(err){
+    toast(err.message, 'error', 5000);
+  }
 }
 
 // Test action — fetch ONE label for ONE order. v1.1.1 single-order proof of flow.
 async function fetchLabelForRow(rowId){
-  const inv = State.invoices.find(x => x.id === rowId);
-  if(!inv){ toast('Order not found', 'error'); return; }
-  if(!inv.awb || !inv.awbOk){ toast('Bad AWB — fix in InvoLens first', 'error'); return; }
+  const baseInv = State.invoices.find(x => x.id === rowId);
+  if(!baseInv){ toast('Order not found', 'error'); return; }
+  const inv = applyAwbOverride(baseInv);
+  if(!inv.awb || !inv.awbOk){ toast('Bad AWB — fix it inline first', 'error'); return; }
   if(inv.courier !== 'cargo'){ toast('Tag this order as Shiprocket Cargo first', 'error'); return; }
   if(!State.settings.cargo.token){ toast('Set Cargo token in Settings → Courier APIs first', 'error', 5000); return; }
 
@@ -2007,9 +2181,10 @@ async function fetchLabelForRow(rowId){
   try{
     toast(`Fetching label for AWB ${inv.awb}...`, 'info', 2000);
     const result = await cargoDownloadLabel(inv.awb, `cargo_${inv.invoiceNo.slice(-12)}`);
-    inv.lastFetchedAt = new Date().toISOString();
-    inv.cargoShipmentId = result.shipmentId;
-    inv.lastLabelSizeBytes = result.size;
+    // Persist back to the underlying record (not the enriched copy)
+    baseInv.lastFetchedAt = new Date().toISOString();
+    baseInv.cargoShipmentId = result.shipmentId;
+    baseInv.lastLabelSizeBytes = result.size;
     persistLocal();
     renderDispatch();
     toast(`Label downloaded (${(result.size/1024).toFixed(1)} KB)`, 'success', 4000);
@@ -2060,7 +2235,7 @@ function updateBulkBar(){
   }
 }
 function updateGenerateBtn(){
-  const cargoReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'cargo');
+  const cargoReady = State.invoices.map(applyAwbOverride).filter(r => r.awb && r.awbOk && r.courier === 'cargo');
   const btn = $('#generateBatchBtn');
   btn.disabled = cargoReady.length === 0;
   btn.textContent = cargoReady.length > 0
@@ -2555,6 +2730,7 @@ function batchFilteredRows(){
   const hi = f.to ? f.to : null;
 
   return State.invoices
+    .map(applyAwbOverride)   // apply AWB overrides so filters see the effective AWB
     .filter(r => {
       // Status filter
       const isDispatched = !!State.dispatched[r.id];
@@ -2626,6 +2802,23 @@ function renderBatch(){
       renderBatch();
     });
   });
+  // AWB edit / clear-override
+  tbody.querySelectorAll('[data-edit-awb]').forEach(el => {
+    el.addEventListener('click', () => openAwbEditor(el.dataset.editAwb));
+  });
+  tbody.querySelectorAll('[data-clear-awb]').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.clearAwb;
+      const inv = State.invoices.find(x => x.id === id);
+      if(!inv) return;
+      const o = State.awbOverrides[id];
+      if(confirm(`Revert AWB override for order ${inv.orderId}?\n\nOverride: ${o?.awb}\nOriginal: ${o?.originalAwb || '(empty)'}`)){
+        clearAwbOverride(id);
+        renderDispatch();
+        renderBatch();
+      }
+    });
+  });
 }
 
 function renderBatchRow(r){
@@ -2660,6 +2853,19 @@ function renderBatchRow(r){
     `<option value="${c.key}" ${courierKey === c.key ? 'selected' : ''}>${c.label}</option>`
   ).join('');
 
+  // AWB cell — same rules as Today's Dispatch
+  let awbCell;
+  const editBtn = `<button class="awb-edit-btn-batch" data-edit-awb="${r.id}" title="Edit AWB" style="background:transparent;border:1px solid var(--line);font-size:9.5px;padding:1px 5px;border-radius:3px;color:var(--ink-2);cursor:pointer;margin-left:3px">✎</button>`;
+  if(!r.awb){
+    awbCell = `<em style="color:var(--ink-3)">none</em>${editBtn}`;
+  } else if(!r.awbOk){
+    awbCell = `<span class="mono" style="font-size:11px;color:#a63333">${r.awb}⚠</span>${editBtn}`;
+  } else if(r._awbOverridden){
+    awbCell = `<span class="mono" style="font-size:11px">${r.awb}</span><span class="mono awb-override-pill-batch" data-clear-awb="${r.id}" title="Click to revert override" style="background:#f0ede2;color:#7c5a14;font-size:9px;padding:1px 4px;border-radius:6px;margin-left:3px;cursor:pointer">✎</span>`;
+  } else {
+    awbCell = `<span class="mono" style="font-size:11px">${r.awb}</span>`;
+  }
+
   return `
     <tr class="${isSelected ? 'row-selected' : ''} ${isDispatched ? 'dispatched' : ''}">
       <td><input type="checkbox" class="batch-checkbox batch-row-cb"
@@ -2667,7 +2873,7 @@ function renderBatchRow(r){
       <td><span class="mono" style="font-size:11px">${shorten(r.invoiceNo, 18)}</span></td>
       <td><span class="mono" style="font-size:11px">${shorten(r.orderId, 22)}</span></td>
       <td>${r.invoiceDate || '—'}</td>
-      <td><span class="mono" style="font-size:11px">${r.awb || '<em style=\"color:var(--ink-3)\">none</em>'}</span></td>
+      <td>${awbCell}</td>
       <td>${escapeHtml(r.customerName || '—')}<br>
           <span style="color:var(--ink-3);font-size:10.5px">${escapeHtml(r.pincode)} ${escapeHtml(r.state)}</span></td>
       <td>
