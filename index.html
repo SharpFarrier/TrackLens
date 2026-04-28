@@ -1684,14 +1684,39 @@ async function cargoGetShipmentDetail(shipmentId){
 async function cargoGetLabelUrlForAwb(awb){
   const { shipmentId, raw: listRow } = await cargoFindShipmentByAwb(awb);
   const detail = await cargoGetShipmentDetail(shipmentId);
-  // The label URL is in `label_url`. Defensively scan a few common alternatives.
+
+  // Diagnostic: log every URL-looking field in the detail response so we can
+  // identify which one is the *presigned* download URL.
+  const urlFields = {};
+  function scan(obj, path = ''){
+    if(!obj || typeof obj !== 'object') return;
+    for(const k of Object.keys(obj)){
+      const v = obj[k];
+      const p = path ? path + '.' + k : k;
+      if(typeof v === 'string' && /^https?:\/\//.test(v)){
+        urlFields[p] = v;
+      } else if(v && typeof v === 'object'){
+        scan(v, p);
+      }
+    }
+  }
+  scan(detail);
+  console.log('[TrackLens][Cargo] All URL fields in detail response:', urlFields);
+
+  // Defensively scan for label URL — try common field names
   const candidates = [
     detail.label_url,
     detail.shipping_label_url,
     detail.awb_label,
     detail.label,
+    detail.download_url,
+    detail.shipping_label,
+    detail.data?.label_url,
+    detail.data?.shipping_label_url,
+    detail.data?.download_url,
     listRow?.label_url
   ].filter(Boolean);
+
   if(candidates.length === 0){
     // Last-resort fallback: scan all string fields for one ending in .pdf
     const all = JSON.stringify(detail);
@@ -1707,42 +1732,37 @@ async function cargoGetLabelUrlForAwb(awb){
 async function cargoDownloadLabel(awb, filenamePrefix = 'label'){
   const { labelUrl, shipmentId } = await cargoGetLabelUrlForAwb(awb);
   const base = getProxyBase();
+  const token = State.settings.cargo.token;
+  if(!token) throw new Error('Cargo token not set.');
 
-  // Surface the URL Cargo gave us — critical for debugging download failures
   console.log('[TrackLens][Cargo] label_url from Cargo:', labelUrl);
 
-  // Cargo's URL format is unusual: `https://host/path/file.pdf:SIGNATURE`
-  // The colon-suffix breaks standard S3 signing. Try multiple strategies:
-  //   1. Use the URL verbatim (in case S3 actually accepts it)
-  //   2. Strip the colon-suffix (in case it's just a checksum, not auth)
-  //   3. Replace colon with ? (in case it's malformed query-string)
-  const strategies = [
-    { name: 'verbatim', url: labelUrl },
-  ];
-  if(/:[A-Za-z0-9_=+/-]+$/.test(labelUrl)){
-    strategies.push({ name: 'stripped', url: labelUrl.replace(/:[A-Za-z0-9_=+/-]+$/, '') });
-    strategies.push({ name: 'colon→?', url: labelUrl.replace(/:([A-Za-z0-9_=+/-]+)$/, '?$1') });
+  // Cargo's label URLs (S3 URLs with non-standard colon-signatures) cannot
+  // be fetched directly from S3 — Cargo wraps them through their own authenticated
+  // download endpoint:
+  //   GET /api/common/download_file?code=<full_s3_url_with_colon_sig>
+  // The endpoint needs the JWT auth header. The S3 URL is passed verbatim as the
+  // `code` parameter — including the `https://` prefix and the trailing `:SIG`.
+  const downloadPath = '/common/download_file?code=' + encodeURIComponent(labelUrl);
+  const downloadUrl = base + '/cargo' + downloadPath;
+  const isJwt = /^eyJ/.test(token);
+  const authHeader = isJwt ? ('Bearer ' + token) : ('token ' + token);
+
+  console.log('[TrackLens][Cargo] downloading via:', downloadPath.slice(0, 60) + '...');
+
+  const resp = await fetch(downloadUrl, {
+    method: 'GET',
+    headers: { 'Authorization': authHeader }
+  });
+
+  if(!resp.ok){
+    const text = await resp.text().catch(() => '');
+    throw new Error(`Label fetch failed: HTTP ${resp.status}. Response: ${text.slice(0, 200)}`);
   }
 
-  let lastErr = null;
-  for(const strat of strategies){
-    const proxiedUrl = base + '/fetch?url=' + encodeURIComponent(strat.url);
-    console.log(`[TrackLens][Cargo] download attempt "${strat.name}":`, strat.url.slice(0, 80) + '...');
-    try{
-      const resp = await fetch(proxiedUrl);
-      if(resp.ok){
-        const ct = resp.headers.get('content-type') || '';
-        console.log(`[TrackLens][Cargo] download "${strat.name}" → ${resp.status}, content-type: ${ct}`);
-        return _streamDownload(resp, awb, filenamePrefix, shipmentId);
-      }
-      lastErr = `HTTP ${resp.status} on "${strat.name}"`;
-      console.warn(`[TrackLens][Cargo] download "${strat.name}" failed: ${resp.status}`);
-    } catch(err){
-      lastErr = err.message;
-      console.warn(`[TrackLens][Cargo] download "${strat.name}" error:`, err.message);
-    }
-  }
-  throw new Error(`Label fetch failed after trying ${strategies.length} URL formats. Last error: ${lastErr}`);
+  const ct = resp.headers.get('content-type') || '';
+  console.log(`[TrackLens][Cargo] download → ${resp.status}, content-type: ${ct}`);
+  return _streamDownload(resp, awb, filenamePrefix, shipmentId);
 }
 
 async function _streamDownload(resp, awb, prefix, shipmentId){
