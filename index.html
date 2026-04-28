@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
   :root{
     --bg: #fafaf7;
@@ -335,6 +336,239 @@
   }
   .empty-state p{font-size:13px;margin-bottom:18px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.6}
 
+  /* ===== v1.1.2 Dispatch (batch) panel ===== */
+  .filter-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    align-items:center;
+    padding:14px 16px;
+    background:var(--cream);
+    border:1px solid var(--line);
+    border-radius:10px;
+    margin-bottom:16px;
+  }
+  .filter-bar .filter-group{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:12px;
+    color:var(--ink-2);
+  }
+  .filter-bar label{
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    font-weight:600;
+    font-size:10.5px;
+    color:var(--ink-3);
+  }
+  .filter-bar select,
+  .filter-bar input[type="date"],
+  .filter-bar input[type="text"]{
+    border:1px solid var(--line);
+    background:#fff;
+    border-radius:6px;
+    padding:6px 10px;
+    font-size:12.5px;
+    font-family:inherit;
+    color:var(--ink);
+    min-width:120px;
+  }
+  .filter-bar input[type="text"]{min-width:240px}
+  .filter-bar select:focus,
+  .filter-bar input:focus{
+    outline:none;
+    border-color:var(--accent);
+  }
+  .filter-bar .filter-spacer{flex:1}
+  .filter-bar .clear-btn{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--ink-2);
+    padding:6px 10px;
+    border-radius:6px;
+    cursor:pointer;
+    font-size:11.5px;
+  }
+  .filter-bar .clear-btn:hover{border-color:var(--ink-2)}
+
+  .batch-summary{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 18px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    margin-bottom:14px;
+  }
+  .batch-summary .selection-info{
+    display:flex;
+    align-items:center;
+    gap:18px;
+    font-size:13px;
+    color:var(--ink-2);
+  }
+  .batch-summary .selection-info strong{
+    color:var(--ink);
+    font-family:'Fraunces',serif;
+    font-size:18px;
+    font-weight:500;
+  }
+  .batch-summary .by-courier{
+    display:flex;
+    gap:14px;
+    color:var(--ink-3);
+    font-size:11.5px;
+  }
+  .batch-summary .by-courier .ct-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    padding:2px 8px;
+    background:var(--cream);
+    border-radius:4px;
+  }
+  .batch-summary .by-courier .ct-pill .dot{
+    width:6px;height:6px;border-radius:50%;
+  }
+  .batch-summary .actions{display:flex;gap:8px;align-items:center}
+
+  .batch-table{
+    width:100%;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    overflow:hidden;
+    border-collapse:collapse;
+  }
+  .batch-table th{
+    text-align:left;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    font-size:10.5px;
+    font-weight:600;
+    color:var(--ink-3);
+    padding:10px 12px;
+    background:var(--cream);
+    border-bottom:1px solid var(--line);
+    position:sticky;top:0;
+  }
+  .batch-table td{
+    padding:10px 12px;
+    border-bottom:1px solid var(--line);
+    font-size:12.5px;
+    color:var(--ink);
+    vertical-align:top;
+  }
+  .batch-table tr:last-child td{border-bottom:none}
+  .batch-table tr.skipped{opacity:.5}
+  .batch-table tr.dispatched{background:#f8f6ee}
+  .batch-table .row-status{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    font-size:11px;
+    padding:3px 8px;
+    border-radius:4px;
+    white-space:nowrap;
+  }
+  .row-status.ok{background:#e8f3ea;color:#2d7d3a}
+  .row-status.warn{background:var(--amber-soft);color:var(--amber)}
+  .row-status.err{background:#fbeaea;color:#a63333}
+  .row-status.idle{background:var(--cream);color:var(--ink-3)}
+  .row-status.run{background:#e6f0fb;color:#1456a6}
+  .row-status .spinner{
+    display:inline-block;width:9px;height:9px;
+    border:1.5px solid currentColor;
+    border-right-color:transparent;
+    border-radius:50%;
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .skip-pill{
+    display:inline-block;font-size:10.5px;
+    padding:2px 6px;border-radius:3px;
+    background:var(--cream);color:var(--ink-3);
+    border:1px solid var(--line);
+    margin-left:6px;
+  }
+
+  .invoice-zone{
+    margin-top:14px;
+    padding:14px 16px;
+    background:var(--cream);
+    border:1px dashed var(--line);
+    border-radius:10px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+  }
+  .invoice-zone.has-file{border-style:solid;background:#f0ede2;border-color:var(--accent-soft)}
+  .invoice-zone .info{font-size:12px;color:var(--ink-2);line-height:1.5}
+  .invoice-zone .info strong{color:var(--ink);font-weight:600}
+  .invoice-zone .actions{display:flex;gap:6px;align-items:center}
+  .invoice-zone input[type="file"]{display:none}
+  .invoice-zone .file-btn{
+    background:#fff;
+    border:1px solid var(--line);
+    padding:6px 12px;
+    border-radius:6px;
+    cursor:pointer;
+    font-size:11.5px;
+    color:var(--ink);
+  }
+  .invoice-zone .file-btn:hover{border-color:var(--ink-2)}
+  .invoice-zone .clear-btn{
+    background:transparent;
+    border:none;
+    color:var(--ink-3);
+    cursor:pointer;
+    font-size:13px;
+    padding:4px 6px;
+  }
+
+  .progress-bar{
+    height:6px;
+    background:var(--cream);
+    border-radius:3px;
+    overflow:hidden;
+    margin:8px 0 4px;
+  }
+  .progress-bar .fill{
+    height:100%;
+    background:var(--accent);
+    transition:width .3s ease;
+  }
+  .progress-text{
+    font-size:11.5px;
+    color:var(--ink-3);
+    display:flex;
+    justify-content:space-between;
+  }
+
+  .batch-checkbox{
+    width:14px;height:14px;
+    accent-color:var(--accent);
+    cursor:pointer;
+  }
+  .batch-table tr.row-selected{background:#fbf9f1}
+
+  .status-pill{
+    display:inline-block;
+    font-size:10px;
+    padding:2px 7px;
+    border-radius:10px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    font-weight:600;
+  }
+  .status-pill.ready{background:#eef5fa;color:#1c5f95}
+  .status-pill.dispatched{background:#e8f3ea;color:#2d7d3a}
+  .status-pill.failed{background:#fbeaea;color:#a63333}
+
   /* ===== Settings ===== */
   .settings-grid{
     display:grid;
@@ -649,7 +883,7 @@
 <header class="topbar">
   <div class="brand">
     <div class="logo">Track<span class="accent">Lens</span></div>
-    <div class="ver">v1.1.1</div>
+    <div class="ver">v1.1.2</div>
   </div>
   <div class="auth-cluster">
     <div class="sync-pill" id="driveSyncPill">
@@ -665,6 +899,10 @@
   <div class="tab active" data-panel="dispatch">
     Today's Dispatch
     <span class="tab-badge" id="dispatchCount">0</span>
+  </div>
+  <div class="tab" data-panel="batch">
+    Dispatch
+    <span class="tab-badge" id="batchCount">0</span>
   </div>
   <div class="tab" data-panel="tracking">
     Live Tracking
@@ -739,9 +977,9 @@
         <div class="selected-count"><span id="selectedCountText">0 selected</span></div>
         <div class="actions">
           <span style="font-size:11px;opacity:0.7;margin-right:6px;align-self:center">Assign to →</span>
-          <button class="btn sm" data-bulk-assign="cargo">Cargo</button>
+          <button class="btn sm" data-bulk-assign="cargo">Shiprocket Cargo</button>
+          <button class="btn sm" data-bulk-assign="delhivery_direct">Delhivery Direct</button>
           <button class="btn sm" data-bulk-assign="bluedart">Bluedart</button>
-          <button class="btn sm" data-bulk-assign="delhivery">Delhivery</button>
           <button class="btn sm ghost" data-bulk-assign="">Untag</button>
           <button class="btn sm ghost" id="bulkClearBtn">✕</button>
         </div>
@@ -770,7 +1008,133 @@
     </div>
   </section>
 
-  <!-- ============= TRACKING PANEL ============= -->
+  <!-- ============= DISPATCH (BATCH) PANEL — v1.1.2 ============= -->
+  <section class="panel" id="panel-batch">
+
+    <!-- Stat row -->
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="label">Selected</div>
+        <div class="value" id="batchSelectedCount">0</div>
+        <div class="sub" id="batchSelectedSub">orders to dispatch</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Cargo Ready</div>
+        <div class="value" id="batchCargoReady">0</div>
+        <div class="sub">via Shiprocket Cargo API</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Will Skip</div>
+        <div class="value" id="batchSkipCount">0</div>
+        <div class="sub" id="batchSkipSub">manual fetch needed</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Last Batch</div>
+        <div class="value" id="batchLastTime" style="font-size:18px">—</div>
+        <div class="sub" id="batchLastSub">no batches yet</div>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>From</label>
+        <input type="date" id="batchFilterFrom" />
+      </div>
+      <div class="filter-group">
+        <label>To</label>
+        <input type="date" id="batchFilterTo" />
+      </div>
+      <div class="filter-group">
+        <label>Courier</label>
+        <select id="batchFilterCourier">
+          <option value="all">All</option>
+          <option value="cargo">Shiprocket Cargo</option>
+          <option value="delhivery_direct">Delhivery Direct</option>
+          <option value="bluedart">Bluedart</option>
+          <option value="untagged">Untagged</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Status</label>
+        <select id="batchFilterStatus">
+          <option value="ready">Ready to dispatch</option>
+          <option value="dispatched">Already dispatched</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Search</label>
+        <input type="text" id="batchFilterSearch" placeholder="order ID, AWB, customer…" />
+      </div>
+      <div class="filter-spacer"></div>
+      <button class="clear-btn" id="batchClearFilters">Clear</button>
+    </div>
+
+    <!-- Selection summary + actions -->
+    <div class="batch-summary">
+      <div class="selection-info">
+        <div>
+          <strong id="batchSelectionStrong">0</strong> selected
+          <span style="color:var(--ink-3);font-size:11.5px">&nbsp;of <span id="batchVisibleCount">0</span> matching</span>
+        </div>
+        <div class="by-courier" id="batchSelectionByCourier"></div>
+      </div>
+      <div class="actions">
+        <button class="btn-secondary" id="batchSelectAllBtn">Select all matching</button>
+        <button class="btn-secondary" id="batchAutoTagBtn" title="Auto-suggest courier from AWB pattern for untagged orders">Auto-tag couriers</button>
+        <button class="btn-primary" id="batchGenerateBtn" disabled>Generate dispatch (0)</button>
+      </div>
+    </div>
+
+    <!-- Manual invoice upload zone -->
+    <div class="invoice-zone" id="invoiceZone">
+      <div class="info">
+        <strong>Invoice source:</strong> <span id="invoiceSourceText">Auto-fetch from Drive (per-order PDFs from InvoLens)</span>
+        <div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">
+          Falls back to manual upload if any record is missing <span class="mono">invoice_pdf.drive_id</span>.
+        </div>
+      </div>
+      <div class="actions">
+        <input type="file" id="invoiceUploadInput" accept="application/pdf" />
+        <button class="file-btn" id="invoiceUploadBtn">Upload merged invoice PDF</button>
+        <button class="clear-btn" id="invoiceClearBtn" style="display:none" title="Remove uploaded invoice">×</button>
+      </div>
+    </div>
+
+    <!-- Order table -->
+    <div style="margin-top:14px;overflow:auto;max-height:560px">
+      <table class="batch-table" id="batchTable">
+        <thead>
+          <tr>
+            <th style="width:30px"><input type="checkbox" class="batch-checkbox" id="batchSelectAllCb" /></th>
+            <th>Invoice</th>
+            <th>Order ID</th>
+            <th>Date</th>
+            <th>AWB</th>
+            <th>Customer</th>
+            <th>Courier</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="batchTableBody">
+          <tr><td colspan="8" style="text-align:center;color:var(--ink-3);padding:40px">Import orders from "Today's Dispatch" tab to begin.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Progress overlay (hidden until batch run) -->
+    <div id="batchProgress" style="display:none;margin-top:16px;padding:16px;background:#fff;border:1px solid var(--line);border-radius:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h3 style="font-family:'Fraunces',serif;font-size:16px;font-weight:500;margin:0">Generating dispatch…</h3>
+        <button class="clear-btn" id="batchProgressClose">Close</button>
+      </div>
+      <div class="progress-bar"><div class="fill" id="batchProgressFill" style="width:0%"></div></div>
+      <div class="progress-text"><span id="batchProgressLabel">Preparing…</span><span id="batchProgressCount">0/0</span></div>
+      <div id="batchProgressLog" style="margin-top:12px;max-height:240px;overflow-y:auto;font-size:11.5px;font-family:'JetBrains Mono',monospace;color:var(--ink-2);background:var(--cream);padding:10px;border-radius:6px"></div>
+    </div>
+
+  </section>
   <section class="panel" id="panel-tracking">
     <div class="empty-state">
       <div class="icon">⊙</div>
@@ -1059,8 +1423,42 @@ const State = {
   meta: {
     importedAt: null,
     importFilename: null
-  }
+  },
+  // ------ v1.1.2 Dispatch batch state ------
+  batch: {
+    selected: new Set(),     // invoice ids picked for dispatch on the Dispatch tab
+    filters: {
+      from: '',              // YYYY-MM-DD or '' = no lower bound
+      to: '',                // YYYY-MM-DD or '' = no upper bound
+      courier: 'all',        // all | cargo | delhivery_direct | bluedart | untagged
+      status: 'ready',       // ready | dispatched | all
+      search: ''
+    },
+    manualInvoicePdf: null,  // { name, bytes (Uint8Array), pageCount }
+    runState: 'idle',        // idle | running | done | error
+    log: [],                 // run log lines
+    history: []              // [{ batchId, ts, count, ... }]
+  },
+  // Per-invoice dispatched state. Map<invoiceId, { dispatchedAt, batchId }>
+  dispatched: {}
 };
+
+/* Courier options - canonical list across the app */
+const COURIER_OPTIONS = [
+  { key: 'cargo',            label: 'Shiprocket Cargo',  apiBacked: true,  color: '#7c3aed' },
+  { key: 'delhivery_direct', label: 'Delhivery Direct',  apiBacked: false, color: '#e63946' },
+  { key: 'bluedart',         label: 'Bluedart',          apiBacked: false, color: '#1d4ed8' },
+];
+const COURIER_BY_KEY = Object.fromEntries(COURIER_OPTIONS.map(c => [c.key, c]));
+
+/* Auto-suggest courier from AWB pattern. Returns key or null. */
+function suggestCourierFromAwb(awb){
+  if(!awb) return null;
+  const s = String(awb).replace(/\s+/g, '');
+  if(/^2089\d{10}$/.test(s)) return 'cargo';   // Shiprocket Cargo (Delhivery underlying)
+  if(/^[56]\d{13}$/.test(s)) return 'bluedart';
+  return null;
+}
 
 /* ------------------- Utils ------------------- */
 const $ = (sel) => document.querySelector(sel);
@@ -1136,7 +1534,9 @@ function persistLocal(){
       settings: State.settings,
       invoices: State.invoices,
       meta: State.meta,
-      tokens: State.tokens
+      tokens: State.tokens,
+      dispatched: State.dispatched,
+      batchHistory: State.batch.history
     }));
   }catch(e){
     // file:// or quota — fail silent, Drive is source of truth
@@ -1151,10 +1551,33 @@ function restoreLocal(){
     if(parsed.invoices) State.invoices = parsed.invoices;
     if(parsed.meta) Object.assign(State.meta, parsed.meta);
     if(parsed.tokens) Object.assign(State.tokens, parsed.tokens);
+    if(parsed.dispatched) State.dispatched = parsed.dispatched;
+    if(parsed.batchHistory) State.batch.history = parsed.batchHistory;
   }catch(e){}
 }
 
 /* ------------------- InvoLens import ------------------- */
+/* Defensive date parser — InvoLens emits both YYYY-MM-DD and (buggy) YYYY-DD-MM.
+ * Returns canonical YYYY-MM-DD or '' if unparseable. Logs warnings for malformed.
+ */
+function normalizeDate(raw){
+  if(!raw || typeof raw !== 'string') return '';
+  // Standard YYYY-MM-DD
+  let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if(!m) return raw;  // unrecognized — pass through
+  const yyyy = m[1];
+  let p1 = parseInt(m[2], 10);
+  let p2 = parseInt(m[3], 10);
+  // If first is > 12, it's almost certainly DD-MM (the InvoLens bug)
+  if(p1 > 12 && p2 <= 12){
+    console.warn(`[TrackLens] Date "${raw}" detected as YYYY-DD-MM (InvoLens bug). Normalizing to YYYY-MM-DD.`);
+    [p1, p2] = [p2, p1];
+  }
+  const mm = String(p1).padStart(2, '0');
+  const dd = String(p2).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function normalizeInvoLensRecord(r){
   const platform = inferPlatform(r.order_id);
   // InvoLens may add `courier` field starting tomorrow; respect it if present.
@@ -1171,7 +1594,8 @@ function normalizeInvoLensRecord(r){
     id: r.id,
     invoiceNo: r.id,                 // InvoLens uses `id` as invoice key
     orderId: r.order_id || '',
-    invoiceDate: r.date || '',
+    invoiceDate: normalizeDate(r.date || ''),
+    createdAt: r.created_at || '',    // Used by Dispatch tab for sequence sort
     awb: r.awb || '',
     awbOk: awbCheck.ok,
     awbIssue: awbCheck.ok ? null : awbCheck.reason,
@@ -1190,6 +1614,7 @@ function normalizeInvoLensRecord(r){
     lineCount: (r.lines || []).length,
     promisedDeliveryDate: null,
     dispatchStatus: 'ready',
+    invoicePdf: r.invoice_pdf || null,  // { drive_id, drive_path, filename, ... } | null
     raw: r
   };
 }
@@ -1286,7 +1711,7 @@ function renderDispatch(){
   const corruptedAwb = State.invoices.filter(r => r.awb && !r.awbOk).length;
   const cargoReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'cargo').length;
   const bluedartTagged = State.invoices.filter(r => r.courier === 'bluedart').length;
-  const delhiveryTagged = State.invoices.filter(r => r.courier === 'delhivery').length;
+  const delhiveryTagged = State.invoices.filter(r => r.courier === 'delhivery_direct' || r.courier === 'delhivery').length;
   const labelsFetched = State.invoices.filter(r => r.lastFetchedAt).length;
   // "Ready" overall = anything tagged + good AWB
   const ready = State.invoices.filter(r => r.awb && r.awbOk && r.courier).length;
@@ -1351,13 +1776,12 @@ function renderRow(r){
   const platformLabel = { amazon:'Amazon', flipkart:'Flipkart', d2c:'D2C', unknown:'?' }[r.platform];
 
   // Courier cell is now an editable dropdown (manual assignment per row).
-  // v1.1.1: Cargo is the active integration. Other options are placeholders for v1.2/v1.3.
+  // v1.1.2: Cargo is API-backed. Delhivery Direct + Bluedart deferred to v1.1.3.
   const courierOptions = [
     { val: '', label: '— Untagged —' },
     { val: 'cargo', label: 'Shiprocket Cargo' },
-    { val: 'bluedart', label: 'Bluedart' },
-    { val: 'delhivery', label: 'Delhivery' },
-    { val: 'shiprocket', label: 'Shiprocket Quick (deferred)' }
+    { val: 'delhivery_direct', label: 'Delhivery Direct' },
+    { val: 'bluedart', label: 'Bluedart' }
   ];
   const courierCell = `<select class="courier-select ${r.courier ? 'tagged' : ''}" data-row-courier="${r.id}">
     ${courierOptions.map(o => `<option value="${o.val}" ${r.courier === o.val ? 'selected' : ''}>${o.label}</option>`).join('')}
@@ -1379,11 +1803,9 @@ function renderRow(r){
     }
     actionCell = `<button class="btn ghost sm" data-fetch-label="${r.id}" style="font-size:11px;padding:4px 8px">Fetch label</button>`;
   } else if(r.courier === 'bluedart') {
-    statusFlag = `<span class="status-flag ready" title="Bluedart integration in v1.2"><span class="pulse"></span>BD pending</span>`;
-  } else if(r.courier === 'delhivery') {
-    statusFlag = `<span class="status-flag ready" title="Delhivery integration in v1.3"><span class="pulse"></span>DL pending</span>`;
-  } else if(r.courier === 'shiprocket') {
-    statusFlag = `<span class="status-flag ready" title="Shiprocket Quick deferred"><span class="pulse"></span>SR-Q deferred</span>`;
+    statusFlag = `<span class="status-flag ready" title="Bluedart integration in v1.1.3"><span class="pulse"></span>BD — v1.1.3</span>`;
+  } else if(r.courier === 'delhivery_direct' || r.courier === 'delhivery') {
+    statusFlag = `<span class="status-flag ready" title="Delhivery Direct integration in v1.1.3"><span class="pulse"></span>DD — v1.1.3</span>`;
   } else {
     statusFlag = `<span class="status-flag ready"><span class="pulse"></span>Ready</span>`;
   }
@@ -1895,7 +2317,558 @@ async function testProxyHealth(){
   }
 }
 
-/* ------------------- Tabs ------------------- */
+/* ============================================================
+ * v1.1.2 — Dispatch (batch) screen logic
+ * ============================================================
+ *
+ * Workflow:
+ *  1) Render filtered list of orders (date / courier / status / search)
+ *  2) User selects rows via checkboxes
+ *  3) "Generate dispatch" runs:
+ *      a. For each selected row tagged Cargo: fetch label via Cargo API
+ *      b. Build merged labels PDF (matching sequence)
+ *      c. Build invoices PDF — auto-fetch from Drive if all rows have invoice_pdf,
+ *         OR use user-uploaded merged invoice PDF as fallback
+ *      d. Trigger downloads of both PDFs
+ *      e. Mark selected rows as Dispatched, save batch metadata to Drive
+ *
+ * Sort order: rows sorted by createdAt DESC (matches InvoLens default).
+ * This ensures the labels PDF and the InvoLens invoice PDF are in the
+ * same physical-print sequence (both stacks line up after printing).
+ */
+
+function batchSortKey(r){
+  // Newest first. createdAt may be missing on legacy records — fall back to invoiceDate.
+  return r.createdAt || r.invoiceDate || '';
+}
+
+function batchFilteredRows(){
+  const f = State.batch.filters;
+  const s = (f.search || '').trim().toLowerCase();
+  const lo = f.from ? f.from : null;
+  const hi = f.to ? f.to : null;
+
+  return State.invoices
+    .filter(r => {
+      // Status filter
+      const isDispatched = !!State.dispatched[r.id];
+      if(f.status === 'ready' && isDispatched) return false;
+      if(f.status === 'dispatched' && !isDispatched) return false;
+      // Date filter (against invoiceDate, normalized YYYY-MM-DD)
+      if(lo && r.invoiceDate < lo) return false;
+      if(hi && r.invoiceDate > hi) return false;
+      // Courier filter
+      if(f.courier !== 'all'){
+        if(f.courier === 'untagged'){
+          if(r.courier) return false;
+        } else {
+          if(r.courier !== f.courier) return false;
+        }
+      }
+      // Search
+      if(s){
+        const hay = `${r.invoiceNo} ${r.orderId} ${r.awb} ${r.customerName} ${r.sku}`.toLowerCase();
+        if(!hay.includes(s)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => batchSortKey(b).localeCompare(batchSortKey(a)));  // DESC
+}
+
+function renderBatch(){
+  const rows = batchFilteredRows();
+  const tbody = $('#batchTableBody');
+
+  if(rows.length === 0){
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--ink-3);padding:40px">
+      ${State.invoices.length === 0
+        ? "Import orders from the Today's Dispatch tab to begin."
+        : 'No orders match the current filters.'}
+    </td></tr>`;
+  } else {
+    tbody.innerHTML = rows.map(r => renderBatchRow(r)).join('');
+  }
+
+  // Update header checkbox state (checked / indeterminate / unchecked)
+  const visibleSelected = rows.filter(r => State.batch.selected.has(r.id)).length;
+  const cb = $('#batchSelectAllCb');
+  cb.checked = visibleSelected === rows.length && rows.length > 0;
+  cb.indeterminate = visibleSelected > 0 && visibleSelected < rows.length;
+
+  renderBatchSummary(rows);
+  renderBatchKpis(rows);
+
+  // Update tab badge — number of selected
+  $('#batchCount').textContent = State.batch.selected.size;
+
+  // Bind row checkbox + courier dropdown handlers
+  tbody.querySelectorAll('.batch-row-cb').forEach(el => {
+    el.addEventListener('change', e => {
+      const id = el.dataset.id;
+      if(el.checked) State.batch.selected.add(id);
+      else State.batch.selected.delete(id);
+      renderBatch();
+    });
+  });
+  tbody.querySelectorAll('.batch-courier-sel').forEach(el => {
+    el.addEventListener('change', e => {
+      const id = el.dataset.id;
+      const inv = State.invoices.find(x => x.id === id);
+      if(!inv) return;
+      inv.courier = el.value || null;
+      persistLocal();
+      renderBatch();
+    });
+  });
+}
+
+function renderBatchRow(r){
+  const isSelected = State.batch.selected.has(r.id);
+  const isDispatched = !!State.dispatched[r.id];
+  const courierKey = r.courier || '';
+  const cargoReady = courierKey === 'cargo';
+  const skipReason = courierKey === 'bluedart' ? 'Use Shypassist for v1.1.2'
+                   : courierKey === 'delhivery_direct' ? 'Manual fetch in v1.1.2'
+                   : '';
+
+  let statusHtml;
+  if(isDispatched){
+    statusHtml = `<span class="status-pill dispatched">Dispatched</span>`;
+  } else if(!r.awb){
+    statusHtml = `<span class="row-status err">No AWB</span>`;
+  } else if(!r.awbOk){
+    statusHtml = `<span class="row-status err">Bad AWB</span>`;
+  } else if(!courierKey){
+    statusHtml = `<span class="row-status warn">Tag courier</span>`;
+  } else if(cargoReady){
+    statusHtml = `<span class="status-pill ready">Ready</span>`;
+  } else {
+    statusHtml = `<span class="row-status warn">${skipReason}</span>`;
+  }
+
+  // Disable selection if not actionable
+  const checkboxAttrs = (cargoReady && !isDispatched && r.awb && r.awbOk)
+    ? '' : 'disabled';
+
+  const courierOpts = COURIER_OPTIONS.map(c =>
+    `<option value="${c.key}" ${courierKey === c.key ? 'selected' : ''}>${c.label}</option>`
+  ).join('');
+
+  return `
+    <tr class="${isSelected ? 'row-selected' : ''} ${isDispatched ? 'dispatched' : ''}">
+      <td><input type="checkbox" class="batch-checkbox batch-row-cb"
+            data-id="${r.id}" ${isSelected ? 'checked' : ''} ${checkboxAttrs} /></td>
+      <td><span class="mono" style="font-size:11px">${shorten(r.invoiceNo, 18)}</span></td>
+      <td><span class="mono" style="font-size:11px">${shorten(r.orderId, 22)}</span></td>
+      <td>${r.invoiceDate || '—'}</td>
+      <td><span class="mono" style="font-size:11px">${r.awb || '<em style=\"color:var(--ink-3)\">none</em>'}</span></td>
+      <td>${escapeHtml(r.customerName || '—')}<br>
+          <span style="color:var(--ink-3);font-size:10.5px">${escapeHtml(r.pincode)} ${escapeHtml(r.state)}</span></td>
+      <td>
+        <select class="batch-courier-sel" data-id="${r.id}" style="border:1px solid var(--line);padding:4px 6px;border-radius:5px;font-size:11.5px;background:#fff;font-family:inherit;color:var(--ink)">
+          <option value="">— Untagged —</option>
+          ${courierOpts}
+        </select>
+      </td>
+      <td>${statusHtml}</td>
+    </tr>`;
+}
+
+function shorten(str, max){
+  if(!str) return '—';
+  return str.length <= max ? str : str.slice(0, max - 1) + '…';
+}
+
+function escapeHtml(s){
+  if(s == null) return '';
+  return String(s).replace(/[&<>"']/g, m => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[m]);
+}
+
+function renderBatchSummary(rows){
+  const sel = State.batch.selected;
+  const selectedRows = rows.filter(r => sel.has(r.id));
+
+  $('#batchSelectionStrong').textContent = sel.size;
+  $('#batchVisibleCount').textContent = rows.length;
+
+  // Group selection by courier
+  const counts = {};
+  selectedRows.forEach(r => {
+    const k = r.courier || 'untagged';
+    counts[k] = (counts[k] || 0) + 1;
+  });
+  const pillsHtml = Object.entries(counts).map(([k, v]) => {
+    const opt = COURIER_BY_KEY[k];
+    const label = opt ? opt.label : 'Untagged';
+    const color = opt ? opt.color : '#999';
+    return `<span class="ct-pill"><span class="dot" style="background:${color}"></span>${label}: ${v}</span>`;
+  }).join('');
+  $('#batchSelectionByCourier').innerHTML = pillsHtml;
+
+  // Generate button
+  const cargoSel = selectedRows.filter(r => r.courier === 'cargo' && r.awb && r.awbOk).length;
+  const btn = $('#batchGenerateBtn');
+  btn.disabled = cargoSel === 0;
+  btn.textContent = `Generate dispatch (${cargoSel})`;
+}
+
+function renderBatchKpis(rows){
+  const sel = State.batch.selected;
+  const selectedRows = rows.filter(r => sel.has(r.id));
+  const cargoReady = selectedRows.filter(r => r.courier === 'cargo' && r.awb && r.awbOk).length;
+  const skipping = selectedRows.length - cargoReady;
+
+  $('#batchSelectedCount').textContent = sel.size;
+  $('#batchSelectedSub').textContent = `of ${rows.length} matching · ${selectedRows.length} on this page`;
+  $('#batchCargoReady').textContent = cargoReady;
+  $('#batchSkipCount').textContent = skipping;
+  $('#batchSkipSub').textContent = skipping === 0 ? 'all selected are Cargo' : 'BD/Delhivery direct';
+
+  const last = State.batch.history[0];
+  if(last){
+    $('#batchLastTime').textContent = fmtRelative(last.ts);
+    $('#batchLastSub').textContent = `${last.count} orders · ${last.batchId}`;
+  }
+}
+
+/* ----- Filters / actions ----- */
+function bindBatchFilters(){
+  const f = State.batch.filters;
+
+  // Default date range = last 7 days
+  const today = new Date().toISOString().slice(0, 10);
+  const weekAgo = new Date(Date.now() - 7*24*60*60*1000).toISOString().slice(0, 10);
+  if(!f.from) f.from = weekAgo;
+  if(!f.to) f.to = today;
+  $('#batchFilterFrom').value = f.from;
+  $('#batchFilterTo').value = f.to;
+
+  $('#batchFilterFrom').addEventListener('change', e => { f.from = e.target.value; renderBatch(); });
+  $('#batchFilterTo').addEventListener('change', e => { f.to = e.target.value; renderBatch(); });
+  $('#batchFilterCourier').addEventListener('change', e => { f.courier = e.target.value; renderBatch(); });
+  $('#batchFilterStatus').addEventListener('change', e => { f.status = e.target.value; renderBatch(); });
+  $('#batchFilterSearch').addEventListener('input', e => { f.search = e.target.value; renderBatch(); });
+
+  $('#batchClearFilters').addEventListener('click', () => {
+    f.from = ''; f.to = ''; f.courier = 'all'; f.status = 'ready'; f.search = '';
+    $('#batchFilterFrom').value = '';
+    $('#batchFilterTo').value = '';
+    $('#batchFilterCourier').value = 'all';
+    $('#batchFilterStatus').value = 'ready';
+    $('#batchFilterSearch').value = '';
+    renderBatch();
+  });
+
+  $('#batchSelectAllCb').addEventListener('change', e => {
+    const rows = batchFilteredRows();
+    rows.forEach(r => {
+      const eligible = r.courier === 'cargo' && r.awb && r.awbOk && !State.dispatched[r.id];
+      if(!eligible) return;
+      if(e.target.checked) State.batch.selected.add(r.id);
+      else State.batch.selected.delete(r.id);
+    });
+    renderBatch();
+  });
+
+  $('#batchSelectAllBtn').addEventListener('click', () => {
+    const rows = batchFilteredRows();
+    rows.forEach(r => {
+      const eligible = r.courier === 'cargo' && r.awb && r.awbOk && !State.dispatched[r.id];
+      if(eligible) State.batch.selected.add(r.id);
+    });
+    renderBatch();
+  });
+
+  $('#batchAutoTagBtn').addEventListener('click', () => {
+    let count = 0;
+    State.invoices.forEach(r => {
+      if(r.courier) return;
+      const sug = suggestCourierFromAwb(r.awb);
+      if(sug){ r.courier = sug; count++; }
+    });
+    persistLocal();
+    toast(`Auto-tagged ${count} orders by AWB pattern`, count ? 'success' : 'info');
+    renderBatch();
+  });
+
+  // Manual invoice upload
+  $('#invoiceUploadBtn').addEventListener('click', () => $('#invoiceUploadInput').click());
+  $('#invoiceUploadInput').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if(!file) return;
+    if(!file.name.toLowerCase().endsWith('.pdf')){
+      toast('Only PDF files accepted', 'error'); return;
+    }
+    try{
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // Quick page count via pdf-lib
+      const pdf = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+      const pages = pdf.getPageCount();
+      State.batch.manualInvoicePdf = { name: file.name, bytes, pageCount: pages };
+      $('#invoiceSourceText').innerHTML = `<strong>${escapeHtml(file.name)}</strong> (${pages} pages) — manual upload`;
+      $('#invoiceZone').classList.add('has-file');
+      $('#invoiceClearBtn').style.display = '';
+      toast(`Uploaded ${file.name} — ${pages} pages`, 'success');
+    } catch(err){
+      toast('Could not read PDF: ' + err.message, 'error');
+    }
+    e.target.value = '';
+  });
+  $('#invoiceClearBtn').addEventListener('click', () => {
+    State.batch.manualInvoicePdf = null;
+    $('#invoiceSourceText').textContent = 'Auto-fetch from Drive (per-order PDFs from InvoLens)';
+    $('#invoiceZone').classList.remove('has-file');
+    $('#invoiceClearBtn').style.display = 'none';
+  });
+
+  // Generate dispatch
+  $('#batchGenerateBtn').addEventListener('click', runDispatchBatch);
+
+  // Progress close
+  $('#batchProgressClose').addEventListener('click', () => {
+    $('#batchProgress').style.display = 'none';
+  });
+}
+
+/* ----- The Dispatch Engine ----- */
+async function runDispatchBatch(){
+  const sel = State.batch.selected;
+  const all = batchFilteredRows();
+  // We process in the same DESC order they appear in the filtered table.
+  const queue = all.filter(r => sel.has(r.id) && r.courier === 'cargo' && r.awb && r.awbOk && !State.dispatched[r.id]);
+
+  if(queue.length === 0){
+    toast('No eligible Cargo orders selected', 'error');
+    return;
+  }
+  if(!State.settings.cargo.token){
+    toast('Set Cargo token in Settings → Courier APIs first', 'error', 5000);
+    return;
+  }
+
+  const batchId = 'b_' + new Date().toISOString().replace(/[-:T]/g,'').slice(0, 12);
+  const ts = new Date().toISOString();
+
+  State.batch.runState = 'running';
+  State.batch.log = [];
+  $('#batchProgress').style.display = '';
+  $('#batchProgressLog').innerHTML = '';
+  setBatchProgress(0, queue.length, 'Starting…');
+  logBatch(`Starting batch ${batchId} — ${queue.length} orders`);
+
+  // Phase 1: Fetch all Cargo labels
+  const labelResults = [];   // [{ row, pdfBytes }] preserved order
+  let done = 0, failed = 0;
+
+  for(const row of queue){
+    setBatchProgress(done, queue.length, `Fetching label for ${row.awb}…`);
+    try{
+      const result = await cargoFetchLabelBytes(row.awb);
+      labelResults.push({ row, pdfBytes: result.bytes });
+      logBatch(`✓ ${row.awb} — label fetched (${(result.bytes.length/1024).toFixed(1)} KB)`);
+    } catch(err){
+      logBatch(`✗ ${row.awb} — ${err.message}`, 'error');
+      failed++;
+    }
+    done++;
+    setBatchProgress(done, queue.length);
+  }
+
+  if(labelResults.length === 0){
+    State.batch.runState = 'error';
+    setBatchProgress(done, queue.length, `All ${failed} label fetches failed.`);
+    toast('Batch failed — no labels could be fetched', 'error', 6000);
+    return;
+  }
+
+  // Phase 2: Merge labels into single PDF
+  setBatchProgress(done, queue.length, 'Merging labels PDF…');
+  logBatch(`Merging ${labelResults.length} label PDFs in dispatch sequence…`);
+  let mergedLabelBytes;
+  try{
+    mergedLabelBytes = await mergePdfs(labelResults.map(x => x.pdfBytes));
+    logBatch(`✓ Labels PDF assembled — ${(mergedLabelBytes.length/1024).toFixed(1)} KB`);
+  } catch(err){
+    logBatch(`✗ Label merge failed: ${err.message}`, 'error');
+    toast('Label merge failed', 'error');
+    State.batch.runState = 'error';
+    return;
+  }
+
+  // Phase 3: Get invoices PDF (auto from Drive OR manual upload)
+  setBatchProgress(done, queue.length, 'Assembling invoices PDF…');
+  let invoicesBytes = null;
+  const successRows = labelResults.map(x => x.row);
+  try{
+    invoicesBytes = await assembleInvoicesPdf(successRows);
+    logBatch(`✓ Invoices PDF assembled — ${(invoicesBytes.length/1024).toFixed(1)} KB`);
+  } catch(err){
+    logBatch(`⚠ Invoices PDF skipped: ${err.message}`, 'warn');
+  }
+
+  // Phase 4: Trigger downloads
+  setBatchProgress(done, queue.length, 'Downloading…');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  triggerDownload(mergedLabelBytes, `cargo_labels_${dateStr}_${batchId}.pdf`);
+  if(invoicesBytes){
+    triggerDownload(invoicesBytes, `invoices_${dateStr}_${batchId}.pdf`);
+  }
+
+  // Phase 5: Mark dispatched + save batch metadata
+  successRows.forEach(r => {
+    State.dispatched[r.id] = { dispatchedAt: ts, batchId };
+  });
+  State.batch.selected.clear();
+  const summary = {
+    batchId, ts, count: successRows.length, failed,
+    orderIds: successRows.map(r => r.orderId),
+    awbs: successRows.map(r => r.awb),
+    invoiceIncluded: !!invoicesBytes
+  };
+  State.batch.history.unshift(summary);
+  if(State.batch.history.length > 50) State.batch.history.length = 50;
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_batches.json', State.batch.history)
+      .catch(e => console.warn('Batch metadata Drive write failed', e));
+  }
+
+  State.batch.runState = 'done';
+  setBatchProgress(queue.length, queue.length, `Done — ${successRows.length} dispatched${failed ? `, ${failed} failed` : ''}`);
+  toast(`Batch ${batchId} complete — ${successRows.length} orders dispatched`, 'success', 5000);
+  renderBatch();
+}
+
+/* Fetch label PDF as bytes (raw, not browser-download). Used for batch merging. */
+async function cargoFetchLabelBytes(awb){
+  const { labelUrl, shipmentId } = await cargoGetLabelUrlForAwb(awb);
+  const base = getProxyBase();
+  const token = State.settings.cargo.token;
+  const isJwt = /^eyJ/.test(token);
+  const authHeader = isJwt ? ('Bearer ' + token) : ('token ' + token);
+
+  let downloadProxyUrl;
+  if(labelUrl.startsWith('https://api-cargo.shiprocket.in/')){
+    const cargoPath = labelUrl.replace(/^https:\/\/api-cargo\.shiprocket\.in\/api/, '');
+    downloadProxyUrl = base + '/cargo' + cargoPath;
+  } else {
+    downloadProxyUrl = base + '/cargo/common/download_file?code=' + encodeURIComponent(labelUrl);
+  }
+
+  const resp = await fetch(downloadProxyUrl, {
+    method: 'GET',
+    headers: { 'Authorization': authHeader }
+  });
+  if(!resp.ok){
+    const text = await resp.text().catch(()=>'');
+    throw new Error(`Label fetch HTTP ${resp.status}: ${text.slice(0, 100)}`);
+  }
+  const buf = new Uint8Array(await resp.arrayBuffer());
+  return { bytes: buf, shipmentId };
+}
+
+/* Merge an ordered list of PDF byte arrays into one PDF using pdf-lib. */
+async function mergePdfs(byteArrays){
+  if(!window.PDFLib) throw new Error('pdf-lib not loaded');
+  const out = await PDFLib.PDFDocument.create();
+  for(const bytes of byteArrays){
+    const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+    const indices = src.getPageIndices();
+    const pages = await out.copyPages(src, indices);
+    pages.forEach(p => out.addPage(p));
+  }
+  return await out.save();
+}
+
+/* Assemble invoices PDF for the dispatched rows.
+ * Strategy:
+ *   1) If user uploaded a manual invoice PDF, use that (validate page count loosely).
+ *   2) Else if all rows have invoice_pdf.drive_id, fetch each from Drive and merge.
+ *   3) Else throw — caller logs and continues without invoices.
+ */
+async function assembleInvoicesPdf(rows){
+  // Manual override always wins
+  if(State.batch.manualInvoicePdf){
+    const m = State.batch.manualInvoicePdf;
+    if(m.pageCount !== rows.length){
+      logBatch(`⚠ Manual invoice PDF has ${m.pageCount} pages, batch has ${rows.length} orders — using anyway`, 'warn');
+    } else {
+      logBatch(`Using manually-uploaded invoice PDF (${m.pageCount} pages match)`);
+    }
+    return m.bytes;
+  }
+
+  // Auto-fetch from Drive
+  const missing = rows.filter(r => !r.invoicePdf?.drive_id);
+  if(missing.length > 0){
+    throw new Error(`${missing.length}/${rows.length} orders have no invoice in Drive (InvoLens upload not configured yet). Use manual upload above to provide invoices.`);
+  }
+  if(!State.drive.connected){
+    throw new Error('Drive not connected — cannot auto-fetch invoices. Connect Drive in Settings or use manual upload.');
+  }
+
+  logBatch(`Fetching ${rows.length} invoice PDFs from Drive…`);
+  const invoiceBytes = [];
+  for(let i = 0; i < rows.length; i++){
+    const r = rows[i];
+    try{
+      const bytes = await fetchDriveFileBytes(r.invoicePdf.drive_id);
+      invoiceBytes.push(bytes);
+    } catch(err){
+      throw new Error(`Failed to fetch invoice for ${r.orderId}: ${err.message}`);
+    }
+  }
+  return await mergePdfs(invoiceBytes);
+}
+
+/* Fetch a Drive file as raw bytes (not JSON). Uses gapi.client. */
+async function fetchDriveFileBytes(fileId){
+  if(!State.drive.accessToken) throw new Error('No Drive access token');
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;
+  const resp = await fetch(url, {
+    headers: { 'Authorization': 'Bearer ' + State.drive.accessToken }
+  });
+  if(!resp.ok) throw new Error(`Drive fetch HTTP ${resp.status}`);
+  return new Uint8Array(await resp.arrayBuffer());
+}
+
+/* Trigger a browser download of given bytes as a PDF. */
+function triggerDownload(bytes, filename){
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/* Progress helpers */
+function setBatchProgress(done, total, label){
+  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+  $('#batchProgressFill').style.width = pct + '%';
+  $('#batchProgressCount').textContent = `${done}/${total}`;
+  if(label !== undefined) $('#batchProgressLabel').textContent = label;
+}
+
+function logBatch(msg, type='info'){
+  State.batch.log.push({ ts: new Date().toISOString(), msg, type });
+  const color = type === 'error' ? '#a63333' : type === 'warn' ? '#a16a0e' : 'var(--ink-2)';
+  const div = document.createElement('div');
+  div.style.color = color;
+  div.style.padding = '2px 0';
+  const t = new Date().toLocaleTimeString();
+  div.textContent = `[${t}] ${msg}`;
+  const log = $('#batchProgressLog');
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+
 function bindTabs(){
   $$('.tab').forEach(t => {
     t.addEventListener('click', () => {
@@ -1904,6 +2877,8 @@ function bindTabs(){
       t.classList.add('active');
       const panel = $('#panel-' + t.dataset.panel);
       if(panel) panel.classList.add('active');
+      // Render-on-show for the batch tab — keeps it cheap when not visible
+      if(t.dataset.panel === 'batch') renderBatch();
     });
   });
 }
@@ -2248,6 +3223,7 @@ function renderDriveStatus(){
 function init(){
   bindTabs();
   bindFilters();
+  bindBatchFilters();          // v1.1.2 — Dispatch tab
   bindImport();
   bindSettings();
 
@@ -2274,10 +3250,20 @@ function init(){
     });
   });
 
-  // Generate batch — placeholder for v1.1.2
+  // "Generate Cargo batch" button on Today's Dispatch tab — switches to Dispatch tab
   $('#generateBatchBtn').addEventListener('click', () => {
-    const cargoReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'cargo');
-    toast(`v1.1.2 will fetch ${cargoReady.length} labels at once. For v1.1.1, click "Fetch label" on individual rows to test.`, 'info', 5000);
+    // Pre-select all Cargo-ready orders for the user
+    State.invoices.forEach(r => {
+      if(r.awb && r.awbOk && r.courier === 'cargo' && !State.dispatched[r.id]){
+        State.batch.selected.add(r.id);
+      }
+    });
+    // Switch to the Dispatch tab
+    $$('.tab').forEach(x => x.classList.remove('active'));
+    $$('.panel').forEach(x => x.classList.remove('active'));
+    document.querySelector('[data-panel="batch"]').classList.add('active');
+    $('#panel-batch').classList.add('active');
+    renderBatch();
   });
 
   restoreLocal();
