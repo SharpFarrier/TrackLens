@@ -1629,7 +1629,12 @@ function normalizeInvoLensRecord(r){
     lineCount: (r.lines || []).length,
     promisedDeliveryDate: null,
     dispatchStatus: 'ready',
-    invoicePdf: r.invoice_pdf || null,  // { drive_id, drive_path, filename, ... } | null
+    invoicePdf: r.invoice_pdf || (r.pdf_drive_id ? {
+      // InvoLens current shape (flat fields) — normalize to the same nested shape
+      drive_id: r.pdf_drive_id,
+      filename: r.pdf_filename || '',
+      web_link: r.pdf_web_link || ''
+    } : null),
     raw: r
   };
 }
@@ -2909,28 +2914,47 @@ async function assembleInvoicesPdf(rows){
   }
 
   // Auto-fetch path
+  // Folder ID is only required if we need to do filename lookup. If every row has
+  // pdf_drive_id in the JSON, we can skip folder configuration entirely.
+  const allHaveDriveId = rows.every(r => r.invoicePdf?.drive_id);
   const folderId = State.settings.involens?.invoicesFolderId;
-  if(!folderId){
-    throw new Error('No InvoLens folder configured. Settings → Drive Sync → InvoLens Invoices folder ID. Or upload merged invoice PDF manually.');
+  if(!allHaveDriveId && !folderId){
+    throw new Error('Some invoices need a folder lookup but no InvoLens folder configured. Settings → Drive Sync → InvoLens Invoices folder ID. Or upload merged invoice PDF manually.');
   }
   if(!State.drive.connected){
     throw new Error('Drive not connected — cannot auto-fetch invoices. Connect Drive in Settings or use manual upload.');
   }
 
-  // Build folder index once per batch
-  if(!_invoicesFolderIndex){
-    logBatch(`Indexing invoices folder…`);
-    _invoicesFolderIndex = await buildInvoicesFolderIndex(folderId);
-    logBatch(`✓ Found ${Object.keys(_invoicesFolderIndex.map).length} invoice PDFs in Drive folder`);
+  // Build folder index once per batch (only if any rows lack a direct drive_id)
+  const rowsNeedFolderLookup = rows.some(r => !r.invoicePdf?.drive_id);
+  if(rowsNeedFolderLookup){
+    if(!_invoicesFolderIndex){
+      logBatch(`Indexing invoices folder…`);
+      _invoicesFolderIndex = await buildInvoicesFolderIndex(folderId);
+      logBatch(`✓ Found ${Object.keys(_invoicesFolderIndex.map).length} invoice PDFs in Drive folder`);
+    }
   }
 
   // Resolve each row's invoice file
-  const resolved = rows.map(r => ({ row: r, driveId: resolveInvoiceDriveId(r, _invoicesFolderIndex) }));
-  const missing = resolved.filter(x => !x.driveId);
-  if(missing.length > 0){
-    const missingIds = missing.slice(0, 5).map(x => x.row.orderId).join(', ');
-    const more = missing.length > 5 ? ` (+${missing.length - 5} more)` : '';
-    throw new Error(`${missing.length}/${rows.length} invoices not found in Drive folder. Missing: ${missingIds}${more}. Upload merged invoice PDF manually instead.`);
+  const resolved = rows.map(r => {
+    const driveId = resolveInvoiceDriveId(r, _invoicesFolderIndex);
+    const source = r.invoicePdf?.drive_id ? 'json'
+                 : (driveId ? 'folder-lookup' : 'missing');
+    return { row: r, driveId, source };
+  });
+
+  const fromJson = resolved.filter(x => x.source === 'json').length;
+  const fromFolder = resolved.filter(x => x.source === 'folder-lookup').length;
+  const missingResolved = resolved.filter(x => !x.driveId);
+
+  if(fromJson > 0 || fromFolder > 0){
+    logBatch(`Invoice resolution — ${fromJson} from JSON, ${fromFolder} via folder lookup, ${missingResolved.length} missing`);
+  }
+
+  if(missingResolved.length > 0){
+    const missingIds = missingResolved.slice(0, 5).map(x => x.row.orderId).join(', ');
+    const more = missingResolved.length > 5 ? ` (+${missingResolved.length - 5} more)` : '';
+    throw new Error(`${missingResolved.length}/${rows.length} invoices not found. Missing: ${missingIds}${more}. Upload merged invoice PDF manually instead.`);
   }
 
   // Fetch and merge in row order
