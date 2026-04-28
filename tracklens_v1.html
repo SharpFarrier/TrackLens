@@ -1,0 +1,1658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackLens — Honey Touch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js"></script>
+<style>
+  :root{
+    --bg: #fafaf7;
+    --surface: #ffffff;
+    --surface-2: #f4f3ee;
+    --ink: #1a1a1a;
+    --ink-2: #4a4a48;
+    --ink-3: #8a8a87;
+    --line: #e6e4dc;
+    --line-2: #d4d1c5;
+    --accent: #c7411a;
+    --accent-soft: #f5e6dd;
+    --green: #3d7a3d;
+    --green-soft: #e3efe0;
+    --amber: #b87a1f;
+    --amber-soft: #f5ead2;
+    --red: #b03030;
+    --red-soft: #f5dcdc;
+    --grey: #6b6864;
+    --grey-soft: #ececeb;
+    --shadow-sm: 0 1px 2px rgba(20,15,5,0.04);
+    --shadow-md: 0 4px 16px rgba(20,15,5,0.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter Tight', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  .mono{font-family:'JetBrains Mono', monospace;}
+  .serif{font-family:'Fraunces', Georgia, serif;}
+
+  /* ===== Top bar ===== */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    position:sticky;top:0;z-index:50;
+  }
+  .brand{display:flex;align-items:baseline;gap:10px}
+  .brand .logo{
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:22px;
+    letter-spacing:-0.02em;
+  }
+  .brand .logo .accent{color: var(--accent); font-style:italic;}
+  .brand .ver{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    color:var(--ink-3);
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    padding: 2px 6px;
+    background: var(--surface-2);
+    border-radius: 3px;
+  }
+
+  .auth-cluster{display:flex;align-items:center;gap:14px}
+  .sync-pill{
+    display:flex;align-items:center;gap:8px;
+    padding: 6px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  .sync-pill .dot{width:6px;height:6px;border-radius:50%;background:var(--ink-3)}
+  .sync-pill.connected .dot{background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
+  .sync-pill.error .dot{background:var(--red)}
+
+  .btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding: 8px 14px;
+    background: var(--ink);
+    color: var(--bg);
+    border:none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor:pointer;
+    transition: all 0.15s ease;
+  }
+  .btn:hover{background:#000;transform:translateY(-1px)}
+  .btn:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line-2)}
+  .btn.ghost:hover{background:var(--surface-2);transform:none}
+  .btn.accent{background:var(--accent)}
+  .btn.accent:hover{background:#a83515}
+  .btn.sm{padding:5px 10px;font-size:12px}
+
+  /* ===== Tab nav ===== */
+  .tabs{
+    display:flex;
+    padding: 0 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    gap: 2px;
+    overflow-x:auto;
+  }
+  .tab{
+    padding: 12px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-3);
+    cursor:pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease;
+    white-space:nowrap;
+    display:flex;align-items:center;gap:8px;
+  }
+  .tab:hover{color:var(--ink-2)}
+  .tab.active{
+    color: var(--ink);
+    border-bottom-color: var(--accent);
+  }
+  .tab-badge{
+    background: var(--ink);
+    color: var(--bg);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-family:'JetBrains Mono',monospace;
+    font-weight: 500;
+  }
+  .tab.active .tab-badge{background:var(--accent)}
+
+  /* ===== Workspace ===== */
+  .workspace{padding: 24px; max-width: 1600px; margin: 0 auto;}
+  .panel{display:none}
+  .panel.active{display:block}
+
+  /* ===== Stat cards ===== */
+  .stat-grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat-card{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow-sm);
+  }
+  .stat-card .label{
+    font-size: 11px;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .stat-card .value{
+    font-family:'Fraunces',serif;
+    font-size: 28px;
+    font-weight: 500;
+    line-height: 1;
+    color: var(--ink);
+  }
+  .stat-card .sub{
+    font-size: 11px;
+    color: var(--ink-3);
+    margin-top: 6px;
+    font-family:'JetBrains Mono',monospace;
+  }
+
+  /* ===== Section header ===== */
+  .section-header{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .section-title{
+    font-family:'Fraunces',serif;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .section-title .count{
+    color: var(--ink-3);
+    font-family:'JetBrains Mono',monospace;
+    font-weight: 400;
+    font-size: 13px;
+    margin-left: 8px;
+  }
+  .section-actions{display:flex;gap:8px}
+
+  /* ===== Filters ===== */
+  .filter-bar{
+    display:flex;gap:10px;
+    margin-bottom: 16px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .filter-chip{
+    padding: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--ink-2);
+    cursor:pointer;
+    transition: all 0.15s ease;
+    display:flex;align-items:center;gap:6px;
+  }
+  .filter-chip:hover{border-color:var(--ink-2)}
+  .filter-chip.active{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .filter-chip .count{
+    font-family:'JetBrains Mono',monospace;
+    font-size: 10px;
+    opacity: 0.7;
+  }
+  .search-box{
+    flex:1;
+    min-width: 240px;
+    padding: 7px 12px;
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--surface);
+  }
+  .search-box:focus{outline:none;border-color:var(--ink)}
+
+  /* ===== Table ===== */
+  .table-wrap{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  table{width:100%;border-collapse:collapse}
+  thead{background: var(--surface-2)}
+  th{
+    text-align:left;
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--line);
+    white-space:nowrap;
+  }
+  td{
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+    vertical-align: middle;
+  }
+  tbody tr:hover{background:var(--surface-2)}
+  tbody tr:last-child td{border-bottom:none}
+  td.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+
+  /* ===== Tags / pills ===== */
+  .tag{
+    display:inline-flex;
+    align-items:center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  .tag.amazon{background:#fef3e3;color:#a55a00}
+  .tag.flipkart{background:#e6f0ff;color:#1e4abf}
+  .tag.d2c{background:#f0e9ff;color:#5e3aaf}
+  .tag.unknown{background:var(--grey-soft);color:var(--grey)}
+
+  .courier-tag{
+    display:inline-flex;align-items:center;gap:5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+  }
+  .courier-tag .badge{
+    width: 6px; height: 6px; border-radius: 50%;
+  }
+  .courier-tag.delhivery .badge{background:#e63946}
+  .courier-tag.bluedart .badge{background:#1d4ed8}
+  .courier-tag.shiprocket .badge{background:#7c3aed}
+  .courier-tag.untagged{background:var(--amber-soft);color:var(--amber);border-color:#e9d8a6}
+  .courier-tag.untagged .badge{background:var(--amber)}
+
+  .check-row{display:flex;align-items:center;gap:10px}
+  .check-row input[type="checkbox"]{
+    width: 16px; height: 16px;
+    accent-color: var(--accent);
+    cursor:pointer;
+  }
+
+  /* ===== Empty state ===== */
+  .empty-state{
+    text-align:center;
+    padding: 60px 24px;
+    color: var(--ink-3);
+  }
+  .empty-state .icon{
+    font-size: 32px;
+    margin-bottom: 12px;
+    opacity: 0.4;
+  }
+  .empty-state h3{
+    font-family:'Fraunces',serif;
+    font-size: 18px;
+    color: var(--ink);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .empty-state p{font-size:13px;margin-bottom:18px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.6}
+
+  /* ===== Settings ===== */
+  .settings-grid{
+    display:grid;
+    grid-template-columns: 240px 1fr;
+    gap: 32px;
+    max-width: 900px;
+  }
+  .settings-nav{
+    display:flex;flex-direction:column;
+    gap: 2px;
+    position:sticky; top: 110px;
+  }
+  .settings-nav-item{
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--ink-2);
+    cursor:pointer;
+    border-radius: 5px;
+    transition: all 0.15s ease;
+  }
+  .settings-nav-item:hover{background:var(--surface-2)}
+  .settings-nav-item.active{background:var(--surface-2);color:var(--ink);font-weight:500}
+
+  .settings-section{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow-sm);
+  }
+  .settings-section h3{
+    font-family:'Fraunces',serif;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .settings-section .desc{
+    font-size: 12px;
+    color: var(--ink-3);
+    margin-bottom: 18px;
+    line-height: 1.6;
+  }
+
+  .field-group{margin-bottom: 14px}
+  .field-group label{
+    display:block;
+    font-size: 11px;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 500;
+    margin-bottom: 6px;
+  }
+  .field-group input, .field-group select{
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--line-2);
+    border-radius: 5px;
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--surface);
+  }
+  .field-group input.mono, .field-group input[type="password"]{
+    font-family:'JetBrains Mono',monospace;
+    font-size: 12px;
+  }
+  .field-group input:focus, .field-group select:focus{
+    outline:none;
+    border-color: var(--ink);
+  }
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+  .cred-row{
+    display:flex;align-items:center;gap:8px;
+  }
+  .cred-row input{flex:1}
+  .masked-display{
+    flex:1;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font-family:'JetBrains Mono',monospace;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .save-row{
+    display:flex;justify-content:flex-end;gap:8px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    margin-top: 14px;
+  }
+
+  .alert-banner{
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    display:flex;align-items:flex-start;gap:10px;
+  }
+  .alert-banner.info{background:#e8f0f7;color:#1e4abf;border:1px solid #c5d8ed}
+  .alert-banner.warn{background:var(--amber-soft);color:var(--amber);border:1px solid #e9d8a6}
+  .alert-banner.success{background:var(--green-soft);color:var(--green);border:1px solid #c4dec0}
+  .alert-banner.error{background:var(--red-soft);color:var(--red);border:1px solid #e8c5c5}
+
+  /* ===== Sliders ===== */
+  .slider-row{
+    display:grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    align-items:center;
+    padding: 10px 0;
+  }
+  .slider-row .label-block label{margin-bottom:2px;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);font-weight:500}
+  .slider-row .label-block .desc{font-size:11px;color:var(--ink-3);margin:0}
+  .slider-row .value-display{
+    font-family:'JetBrains Mono',monospace;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--surface-2);
+    padding: 4px 10px;
+    border-radius: 4px;
+    min-width: 60px;
+    text-align: center;
+  }
+  .slider-row input[type="range"]{
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-top: 4px;
+    accent-color: var(--accent);
+  }
+
+  /* ===== File drop zone ===== */
+  .drop-zone{
+    border: 1.5px dashed var(--line-2);
+    border-radius: 10px;
+    padding: 36px 24px;
+    text-align:center;
+    background: var(--surface);
+    transition: all 0.2s ease;
+    cursor:pointer;
+  }
+  .drop-zone:hover, .drop-zone.dragover{
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .drop-zone .icon{
+    font-size: 28px;
+    color: var(--ink-3);
+    margin-bottom: 8px;
+  }
+  .drop-zone .title{
+    font-family:'Fraunces',serif;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .drop-zone .hint{
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  /* ===== Modal ===== */
+  .modal-backdrop{
+    position:fixed;inset:0;
+    background: rgba(20,15,5,0.4);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    display:none;
+    align-items:center;
+    justify-content:center;
+  }
+  .modal-backdrop.active{display:flex}
+  .modal{
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 28px;
+    max-width: 520px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(20,15,5,0.2);
+  }
+  .modal h2{font-family:'Fraunces',serif;font-size:20px;margin-bottom:10px;font-weight:600}
+  .modal .desc{color:var(--ink-3);font-size:13px;margin-bottom:18px;line-height:1.6}
+
+  /* ===== Toast ===== */
+  .toast-stack{
+    position:fixed;
+    top: 80px; right: 24px;
+    z-index: 200;
+    display:flex;flex-direction:column;gap:8px;
+    pointer-events:none;
+  }
+  .toast{
+    padding: 10px 16px;
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 6px;
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    animation: toast-in 0.25s ease;
+    pointer-events:auto;
+    max-width: 360px;
+  }
+  .toast.success{background: var(--green)}
+  .toast.error{background: var(--red)}
+  @keyframes toast-in{
+    from{opacity:0;transform:translateX(20px)}
+    to{opacity:1;transform:translateX(0)}
+  }
+
+  /* ===== Truncate helpers ===== */
+  .truncate{
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ===== Bulk action bar ===== */
+  .bulk-bar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding: 10px 16px;
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 8px;
+    margin-bottom: 14px;
+    animation: slide-in 0.2s ease;
+  }
+  .bulk-bar .selected-count{font-size:13px;font-weight:500}
+  .bulk-bar .actions{display:flex;gap:6px}
+  .bulk-bar .btn{background: var(--bg);color: var(--ink)}
+  .bulk-bar .btn:hover{background: var(--surface-2)}
+  .bulk-bar .btn.accent{background: var(--accent);color:#fff}
+  @keyframes slide-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+
+  /* ===== Status indicators ===== */
+  .status-flag{
+    display:inline-flex;align-items:center;gap:6px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .status-flag .pulse{
+    width: 6px; height: 6px; border-radius: 50%;
+  }
+  .status-flag.ready{background:var(--grey-soft);color:var(--grey)}
+  .status-flag.ready .pulse{background:var(--grey)}
+  .status-flag.intransit{background:#e8f0f7;color:#1e4abf}
+  .status-flag.intransit .pulse{background:#1e4abf}
+  .status-flag.delivered{background:var(--green-soft);color:var(--green)}
+  .status-flag.delivered .pulse{background:var(--green)}
+  .status-flag.atrisk{background:var(--amber-soft);color:var(--amber)}
+  .status-flag.atrisk .pulse{background:var(--amber)}
+  .status-flag.breached{background:var(--red-soft);color:var(--red)}
+  .status-flag.breached .pulse{background:var(--red);animation:pulse 1.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+  /* ===== Responsive ===== */
+  @media (max-width: 900px){
+    .settings-grid{grid-template-columns:1fr}
+    .settings-nav{position:static}
+    .field-row{grid-template-columns:1fr}
+    .topbar{padding: 12px 16px}
+    .workspace{padding: 16px}
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== TOP BAR ===== -->
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">Track<span class="accent">Lens</span></div>
+    <div class="ver">v1.0</div>
+  </div>
+  <div class="auth-cluster">
+    <div class="sync-pill" id="driveSyncPill">
+      <span class="dot"></span>
+      <span id="driveSyncText">Drive: Not connected</span>
+    </div>
+    <button class="btn ghost sm" id="connectDriveBtn">Connect Drive</button>
+  </div>
+</header>
+
+<!-- ===== TABS ===== -->
+<nav class="tabs">
+  <div class="tab active" data-panel="dispatch">
+    Today's Dispatch
+    <span class="tab-badge" id="dispatchCount">0</span>
+  </div>
+  <div class="tab" data-panel="tracking">
+    Live Tracking
+    <span class="tab-badge" id="trackingCount">0</span>
+  </div>
+  <div class="tab" data-panel="alerts">
+    Alerts
+    <span class="tab-badge" id="alertsCount">0</span>
+  </div>
+  <div class="tab" data-panel="sla">SLA Performance</div>
+  <div class="tab" data-panel="settings">Settings</div>
+</nav>
+
+<!-- ===== WORKSPACE ===== -->
+<main class="workspace">
+
+  <!-- ============= DISPATCH PANEL ============= -->
+  <section class="panel active" id="panel-dispatch">
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="label">Pending Dispatch</div>
+        <div class="value" id="kpiPending">—</div>
+        <div class="sub">orders ready</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Untagged Courier</div>
+        <div class="value" id="kpiUntagged">—</div>
+        <div class="sub">need courier mapping</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">AWB Issues</div>
+        <div class="value" id="kpiMissingAwb">—</div>
+        <div class="sub">missing or corrupted</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Last Sync</div>
+        <div class="value serif" id="kpiLastSync" style="font-size:18px">—</div>
+        <div class="sub" id="kpiLastSyncSub">no data yet</div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">
+        Dispatch Queue
+        <span class="count" id="queueCount">— orders</span>
+      </div>
+      <div class="section-actions">
+        <button class="btn ghost sm" id="reimportBtn">Re-import InvoLens</button>
+        <button class="btn accent" id="generateBatchBtn" disabled>Generate Label Batch</button>
+      </div>
+    </div>
+
+    <div id="dispatchEmpty" class="empty-state">
+      <div class="icon">⎙</div>
+      <h3>No orders loaded yet</h3>
+      <p>Import the latest <span class="mono">involens_invoices.json</span> export from InvoLens to begin building today's dispatch batch.</p>
+      <button class="btn accent" id="importBtnEmpty">Import InvoLens JSON</button>
+    </div>
+
+    <div id="dispatchContent" style="display:none">
+
+      <div class="filter-bar">
+        <div class="filter-chip active" data-filter="all">All <span class="count" id="fc-all">0</span></div>
+        <div class="filter-chip" data-filter="ready">Ready <span class="count" id="fc-ready">0</span></div>
+        <div class="filter-chip" data-filter="untagged">Untagged courier <span class="count" id="fc-untagged">0</span></div>
+        <div class="filter-chip" data-filter="missing">AWB issues <span class="count" id="fc-missing">0</span></div>
+        <input type="search" class="search-box" id="searchBox" placeholder="Search invoice, order ID, AWB, SKU, or customer..." />
+      </div>
+
+      <div id="bulkBar" class="bulk-bar" style="display:none">
+        <div class="selected-count"><span id="selectedCountText">0 selected</span></div>
+        <div class="actions">
+          <button class="btn sm ghost" id="bulkAssignBtn">Assign courier</button>
+          <button class="btn sm accent" id="bulkGenerateBtn">Generate labels</button>
+          <button class="btn sm ghost" id="bulkClearBtn">Clear</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="dispatchTable">
+          <thead>
+            <tr>
+              <th style="width:40px"><input type="checkbox" id="selectAll" /></th>
+              <th>Invoice</th>
+              <th>Order ID</th>
+              <th>Platform</th>
+              <th>SKU</th>
+              <th>Customer</th>
+              <th>Pincode</th>
+              <th>AWB</th>
+              <th>Courier</th>
+              <th style="width:80px">Status</th>
+            </tr>
+          </thead>
+          <tbody id="dispatchTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============= TRACKING PANEL ============= -->
+  <section class="panel" id="panel-tracking">
+    <div class="empty-state">
+      <div class="icon">⊙</div>
+      <h3>Live tracking — coming in v1.3</h3>
+      <p>Real-time shipment status from Shiprocket, Delhivery, and Bluedart APIs. Color-coded grid for at-risk, breached, and RTO orders.</p>
+    </div>
+  </section>
+
+  <!-- ============= ALERTS PANEL ============= -->
+  <section class="panel" id="panel-alerts">
+    <div class="empty-state">
+      <div class="icon">⚠</div>
+      <h3>Alerts engine — coming in v1.4</h3>
+      <p>Interakt WhatsApp + email triggers for at-risk, breached, NDR, and RTO orders. Customer-facing "picked up" and "out for delivery" notifications.</p>
+    </div>
+  </section>
+
+  <!-- ============= SLA PANEL ============= -->
+  <section class="panel" id="panel-sla">
+    <div class="empty-state">
+      <div class="icon">⌗</div>
+      <h3>SLA performance — coming in v1.5</h3>
+      <p>Avg dispatch-to-delivery by courier, pincode heatmap, promised vs actual on-time rate, RTO breakdown by courier and SKU.</p>
+    </div>
+  </section>
+
+  <!-- ============= SETTINGS PANEL ============= -->
+  <section class="panel" id="panel-settings">
+    <div class="settings-grid">
+      <aside class="settings-nav">
+        <div class="settings-nav-item active" data-section="couriers">Courier APIs</div>
+        <div class="settings-nav-item" data-section="messaging">Messaging</div>
+        <div class="settings-nav-item" data-section="thresholds">Delay Thresholds</div>
+        <div class="settings-nav-item" data-section="drive">Drive Sync</div>
+        <div class="settings-nav-item" data-section="about">About</div>
+      </aside>
+
+      <div class="settings-content">
+
+        <div class="settings-section" data-section="couriers">
+          <h3>Courier API Credentials</h3>
+          <p class="desc">Saved encrypted to your Drive folder. Used to fetch shipping labels and track status. Click "Edit" to update; values are masked otherwise.</p>
+
+          <!-- Shiprocket -->
+          <div class="field-group">
+            <label>Shiprocket — Email + Password (token auto-refreshes)</label>
+            <div class="field-row">
+              <input type="email" id="cred-sr-email" placeholder="email@example.com" data-cred="shiprocket.email" />
+              <input type="password" id="cred-sr-password" placeholder="••••••••" data-cred="shiprocket.password" />
+            </div>
+          </div>
+
+          <!-- Delhivery -->
+          <div class="field-group">
+            <label>Delhivery — API Token</label>
+            <input type="password" class="mono" id="cred-dl-token" placeholder="Bearer token" data-cred="delhivery.token" />
+          </div>
+
+          <!-- Bluedart -->
+          <div class="field-group">
+            <label>Bluedart — License Key + Customer Code</label>
+            <div class="field-row">
+              <input type="password" class="mono" id="cred-bd-license" placeholder="License key" data-cred="bluedart.license" />
+              <input type="text" class="mono" id="cred-bd-customer" placeholder="Customer code" data-cred="bluedart.customer" />
+            </div>
+          </div>
+
+          <div class="save-row">
+            <button class="btn ghost sm" id="testCouriersBtn">Test connections</button>
+            <button class="btn sm" data-save-section="couriers">Save credentials</button>
+          </div>
+        </div>
+
+        <div class="settings-section" data-section="messaging" style="display:none">
+          <h3>Interakt — WhatsApp & Email</h3>
+          <p class="desc">Used for ops alerts (at-risk, breached, RTO, NDR) and customer notifications (picked up, out for delivery).</p>
+
+          <div class="field-group">
+            <label>Interakt API Key</label>
+            <input type="password" class="mono" id="cred-it-key" placeholder="Interakt secret key" data-cred="interakt.apiKey" />
+          </div>
+
+          <div class="field-group">
+            <label>Ops alert recipients (WhatsApp)</label>
+            <input type="text" class="mono" id="cred-ops-phones" placeholder="+919999999999, +918888888888" data-cred="alerts.opsPhones" />
+          </div>
+
+          <div class="field-group">
+            <label>Ops alert email</label>
+            <input type="email" id="cred-ops-email" placeholder="ops@honeytouch.in" data-cred="alerts.opsEmail" />
+          </div>
+
+          <div class="field-row">
+            <div class="field-group">
+              <label>Template — Picked Up</label>
+              <input type="text" class="mono" id="tpl-pickedup" placeholder="ht_picked_up_v1" data-cred="templates.pickedUp" />
+            </div>
+            <div class="field-group">
+              <label>Template — Out For Delivery</label>
+              <input type="text" class="mono" id="tpl-ofd" placeholder="ht_ofd_v1" data-cred="templates.ofd" />
+            </div>
+          </div>
+
+          <div class="save-row">
+            <button class="btn sm" data-save-section="messaging">Save</button>
+          </div>
+        </div>
+
+        <div class="settings-section" data-section="thresholds" style="display:none">
+          <h3>Delay & RTO Thresholds</h3>
+          <p class="desc">When TrackLens flags an order as at-risk, breached, or stuck. All thresholds are configurable.</p>
+
+          <div class="slider-row">
+            <div class="label-block">
+              <label>Stale tracking</label>
+              <p class="desc">Hours since last courier status update before flag</p>
+            </div>
+            <div class="value-display"><span id="thr-stale">48</span> h</div>
+            <input type="range" min="12" max="120" step="6" value="48" id="thr-stale-input" />
+          </div>
+
+          <div class="slider-row">
+            <div class="label-block">
+              <label>At-risk window</label>
+              <p class="desc">Flag if promised date is within N hours and not yet OFD</p>
+            </div>
+            <div class="value-display"><span id="thr-atrisk">24</span> h</div>
+            <input type="range" min="6" max="72" step="6" value="24" id="thr-atrisk-input" />
+          </div>
+
+          <div class="slider-row">
+            <div class="label-block">
+              <label>Breach grace</label>
+              <p class="desc">Hours past promised date before breach alert</p>
+            </div>
+            <div class="value-display"><span id="thr-breach">12</span> h</div>
+            <input type="range" min="0" max="48" step="3" value="12" id="thr-breach-input" />
+          </div>
+
+          <div class="save-row">
+            <button class="btn sm" data-save-section="thresholds">Save</button>
+          </div>
+        </div>
+
+        <div class="settings-section" data-section="drive" style="display:none">
+          <h3>Drive Sync</h3>
+          <p class="desc">TrackLens reads and writes JSON files to your dedicated Drive folder. Auth scope: <span class="mono">drive.file</span> — only files created by TrackLens are visible.</p>
+
+          <div class="field-group">
+            <label>Drive folder ID</label>
+            <input type="text" class="mono" id="cfg-drive-folder" value="1tRjPhSHq8eGWg2kLzz0E1xPcWav_aA3J" readonly />
+          </div>
+
+          <div class="field-group">
+            <label>OAuth client ID</label>
+            <input type="text" class="mono" id="cfg-oauth-client" value="801481705797-4lr6orueunsbdk5vhhe578bga4ai6lhq.apps.googleusercontent.com" readonly />
+          </div>
+
+          <div id="driveStatusBlock" style="background:var(--surface-2);padding:14px;border-radius:6px;font-size:12px;color:var(--ink-2);font-family:'JetBrains Mono',monospace;line-height:1.7"></div>
+
+          <div class="save-row">
+            <button class="btn ghost sm" id="reauthDriveBtn">Re-authenticate</button>
+            <button class="btn sm" id="syncDriveBtn">Sync now</button>
+          </div>
+        </div>
+
+        <div class="settings-section" data-section="about" style="display:none">
+          <h3>About TrackLens</h3>
+          <p class="desc">Honey Touch shipment dispatch & SLA tracker. Reads orders from InvoLens, fetches shipping labels from courier APIs, monitors status, and triggers alerts.</p>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);line-height:2">
+            <div>Version: <strong>1.0.0</strong> (foundation release)</div>
+            <div>Canonical: <strong>tracklens_v1.html</strong></div>
+            <div>Storage key: <strong>tracklens_v1</strong></div>
+            <div>Build date: 2026-04-28</div>
+          </div>
+          <div style="margin-top:18px;padding:14px;background:var(--surface-2);border-radius:6px;font-size:12px;line-height:1.8">
+            <strong>Roadmap:</strong><br>
+            v1.0 — Auth + InvoLens import + dispatch queue (you are here)<br>
+            v1.1 — Shiprocket label fetch + sticker PDF<br>
+            v1.2 — Delhivery + Bluedart label fetch, dual PDF (sticker + A4 handoff)<br>
+            v1.3 — Live tracking grid<br>
+            v1.4 — Alerts engine (Interakt)<br>
+            v1.5 — SLA performance dashboard<br>
+            v1.6 — Direct InvoLens → TrackLens auto-sync
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ===== FILE IMPORT MODAL ===== -->
+<div class="modal-backdrop" id="importModal">
+  <div class="modal">
+    <h2>Import InvoLens orders</h2>
+    <p class="desc">Drop your <span class="mono">involens_invoices.json</span> export. TrackLens will parse it, detect platform from order ID, and infer courier from AWB length where InvoLens hasn't tagged it explicitly.</p>
+    <div class="drop-zone" id="dropZone">
+      <div class="icon">↥</div>
+      <div class="title">Drop JSON here, or click to browse</div>
+      <div class="hint">.json from InvoLens export</div>
+      <input type="file" id="fileInput" accept=".json" style="display:none" />
+    </div>
+    <div class="save-row">
+      <button class="btn ghost sm" id="cancelImportBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== TOAST STACK ===== -->
+<div class="toast-stack" id="toastStack"></div>
+
+<script>
+/* =========================================================
+   TrackLens v1.0
+   - Manual InvoLens JSON import (v1.0 scope)
+   - Google Drive sync for TrackLens-owned files
+   - Settings persist to Drive (with localStorage shadow)
+   - Dispatch queue with platform/courier/AWB diagnostics
+   ========================================================= */
+
+const STORAGE_KEY = 'tracklens_v1';
+const REGISTRY_KEY = 'tracklens_registry';
+const DRIVE_FOLDER_ID = '1tRjPhSHq8eGWg2kLzz0E1xPcWav_aA3J';
+const OAUTH_CLIENT_ID = '801481705797-4lr6orueunsbdk5vhhe578bga4ai6lhq.apps.googleusercontent.com';
+const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+
+/* ------------------- State ------------------- */
+const State = {
+  invoices: [],            // imported from InvoLens
+  selected: new Set(),     // selected row IDs in dispatch
+  filter: 'all',
+  search: '',
+  settings: {
+    shiprocket: { email: '', password: '' },
+    delhivery: { token: '' },
+    bluedart: { license: '', customer: '' },
+    interakt: { apiKey: '' },
+    alerts: { opsPhones: '', opsEmail: '' },
+    templates: { pickedUp: '', ofd: '' },
+    thresholds: { stale: 48, atrisk: 24, breach: 12 }
+  },
+  drive: {
+    accessToken: null,
+    connected: false,
+    lastSync: null
+  },
+  meta: {
+    importedAt: null,
+    importFilename: null
+  }
+};
+
+/* ------------------- Utils ------------------- */
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+function toast(msg, type='info', dur=3500){
+  const stack = $('#toastStack');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  stack.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, dur);
+}
+
+function fmtDate(iso){
+  if(!iso) return '—';
+  try{
+    const d = new Date(iso);
+    return d.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+  }catch{ return iso; }
+}
+function fmtRelative(iso){
+  if(!iso) return 'never';
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms/60000);
+  if(m < 1) return 'just now';
+  if(m < 60) return m + ' min ago';
+  const h = Math.floor(m/60);
+  if(h < 24) return h + 'h ago';
+  return Math.floor(h/24) + 'd ago';
+}
+
+function maskCred(val){
+  if(!val) return '';
+  if(val.length <= 4) return '••••';
+  return '••••••••' + val.slice(-4);
+}
+
+/* ------------------- Platform / courier inference ------------------- */
+function inferPlatform(orderId){
+  if(!orderId) return 'unknown';
+  if(orderId.startsWith('OD')) return 'flipkart';
+  if(/^\d{3}-\d{7}-\d{7}$/.test(orderId)) return 'amazon';
+  return 'd2c';
+}
+
+// AWB integrity check — detects sheet-export corruption (scientific notation,
+// stripped leading zeros, etc). When InvoLens uses Sheets/Excel as a passthrough,
+// long numeric AWBs get coerced to General/Number format and lose precision
+// (e.g. "20894541298610" becomes "2.08945E+13" → trailing digits are GONE forever).
+// Trying to "repair" gives a wrong AWB, so we only detect & flag.
+function checkAwbIntegrity(awb){
+  if(!awb) return { ok:false, reason:'missing' };
+  const a = String(awb).trim();
+  // Scientific notation: "2.08945E+13", "1.23e+11", etc.
+  if(/^\d+(\.\d+)?[eE][+-]?\d+$/.test(a)) return { ok:false, reason:'scientific_notation' };
+  // Decimal point in what should be an integer AWB
+  if(/^\d+\.\d+$/.test(a)) return { ok:false, reason:'decimal' };
+  // Reasonable AWB shape: 8–24 chars, alphanumeric (some couriers use letters)
+  if(!/^[A-Z0-9]{8,24}$/i.test(a)) return { ok:false, reason:'malformed' };
+  return { ok:true };
+}
+
+// Courier inference is now disabled — InvoLens is the source of truth for courier.
+// Length heuristic was removed because the only signal available (AWB length)
+// turned out to be a corruption artifact, not a real courier difference.
+function inferCourier(_awb){ return null; }
+
+/* ------------------- localStorage shadow ------------------- */
+function persistLocal(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      settings: State.settings,
+      invoices: State.invoices,
+      meta: State.meta
+    }));
+  }catch(e){
+    // file:// or quota — fail silent, Drive is source of truth
+  }
+}
+function restoreLocal(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const parsed = JSON.parse(raw);
+    if(parsed.settings) Object.assign(State.settings, parsed.settings);
+    if(parsed.invoices) State.invoices = parsed.invoices;
+    if(parsed.meta) Object.assign(State.meta, parsed.meta);
+  }catch(e){}
+}
+
+/* ------------------- InvoLens import ------------------- */
+function normalizeInvoLensRecord(r){
+  const platform = inferPlatform(r.order_id);
+  // InvoLens may add `courier` field starting tomorrow; respect it if present.
+  // No length-based inference — see inferCourier() above for context.
+  const courier = (r.courier || r.shipping_partner || null);
+
+  const awbCheck = checkAwbIntegrity(r.awb);
+
+  const firstLine = (r.lines && r.lines[0]) || {};
+  const sku = firstLine.sku || '';
+  const productName = firstLine.product_name || '';
+
+  return {
+    id: r.id,
+    invoiceNo: r.id,                 // InvoLens uses `id` as invoice key
+    orderId: r.order_id || '',
+    invoiceDate: r.date || '',
+    awb: r.awb || '',
+    awbOk: awbCheck.ok,
+    awbIssue: awbCheck.ok ? null : awbCheck.reason,
+    isReplacement: !!r.is_replacement,
+    platform,
+    courier,
+    courierInferred: false,          // never inferred — always from InvoLens
+    customerName: r.consignee?.name || '',
+    customerPhone: r.consignee?.contact || '',
+    pincode: r.consignee?.pincode || '',
+    state: r.consignee?.state || '',
+    sku,
+    productName,
+    qty: firstLine.qty || 0,
+    amount: r.totals?.grand_total || 0,
+    lineCount: (r.lines || []).length,
+    promisedDeliveryDate: null,
+    dispatchStatus: 'ready',
+    raw: r
+  };
+}
+
+function importInvoLensJSON(text, filename){
+  let data;
+  try{
+    data = JSON.parse(text);
+  }catch(e){
+    toast('Invalid JSON — could not parse', 'error');
+    return;
+  }
+  if(!Array.isArray(data)){
+    toast('Expected an array of invoices', 'error');
+    return;
+  }
+  State.invoices = data.map(normalizeInvoLensRecord);
+  State.meta.importedAt = new Date().toISOString();
+  State.meta.importFilename = filename || 'involens_invoices.json';
+  State.selected.clear();
+  persistLocal();
+  renderDispatch();
+  closeImportModal();
+
+  // Integrity diagnostics
+  const corrupted = State.invoices.filter(r => r.awb && !r.awbOk);
+  const missing = State.invoices.filter(r => !r.awb);
+  const ok = State.invoices.length - corrupted.length - missing.length;
+
+  toast(`Imported ${State.invoices.length} invoices — ${ok} ready, ${corrupted.length} corrupted AWBs, ${missing.length} missing AWBs`, corrupted.length || missing.length ? 'error' : 'success', 6000);
+
+  if(corrupted.length){
+    showAwbCorruptionBanner(corrupted);
+  }
+
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_orders.json', State.invoices)
+      .then(()=>{ State.drive.lastSync = new Date().toISOString(); renderDriveStatus(); })
+      .catch(e=>console.warn('Drive write failed', e));
+  }
+}
+
+function showAwbCorruptionBanner(corruptedRows){
+  // Remove any existing banner
+  const old = document.getElementById('awbWarningBanner');
+  if(old) old.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'awbWarningBanner';
+  banner.className = 'alert-banner error';
+  banner.style.marginTop = '0';
+
+  const sciCount = corruptedRows.filter(r => r.awbIssue === 'scientific_notation').length;
+  const otherCount = corruptedRows.length - sciCount;
+
+  let msg = `<strong>${corruptedRows.length} invoices have corrupted AWBs.</strong> `;
+  if(sciCount){
+    msg += `${sciCount} got mangled into scientific notation (e.g. "2.08945E+13") — this happens when the export passes through Sheets/Excel with AWB column as <em>General</em> or <em>Number</em> format. The trailing digits are lost and cannot be recovered. `;
+  }
+  if(otherCount){
+    msg += `${otherCount} are otherwise malformed. `;
+  }
+  msg += `<strong>Fix in InvoLens:</strong> set the AWB column to <em>Plain text</em> format before export, or write JSON directly without going through a spreadsheet.`;
+
+  banner.innerHTML = `<div style="flex:1">${msg}</div><button class="btn ghost sm" onclick="this.parentElement.remove()" style="background:transparent;border-color:rgba(176,48,48,0.3);color:var(--red)">Dismiss</button>`;
+
+  // Insert above the dispatch content
+  const target = $('#dispatchContent');
+  if(target) target.insertBefore(banner, target.firstChild);
+}
+
+/* ------------------- Render dispatch ------------------- */
+function renderDispatch(){
+  const total = State.invoices.length;
+  $('#dispatchCount').textContent = total;
+  $('#queueCount').textContent = total + ' orders';
+
+  if(total === 0){
+    $('#dispatchEmpty').style.display = 'block';
+    $('#dispatchContent').style.display = 'none';
+    $('#kpiPending').textContent = '0';
+    $('#kpiUntagged').textContent = '0';
+    $('#kpiMissingAwb').textContent = '0';
+    $('#kpiLastSync').textContent = '—';
+    $('#kpiLastSyncSub').textContent = 'no data yet';
+    return;
+  }
+
+  $('#dispatchEmpty').style.display = 'none';
+  $('#dispatchContent').style.display = 'block';
+
+  const untagged = State.invoices.filter(r => !r.courier).length;
+  const missingAwb = State.invoices.filter(r => !r.awb).length;
+  const corruptedAwb = State.invoices.filter(r => r.awb && !r.awbOk).length;
+  const ready = State.invoices.filter(r => r.awb && r.awbOk && r.courier).length;
+
+  $('#kpiPending').textContent = total;
+  $('#kpiUntagged').textContent = untagged;
+  $('#kpiMissingAwb').textContent = missingAwb + corruptedAwb;
+
+  if(State.meta.importedAt){
+    $('#kpiLastSync').textContent = fmtRelative(State.meta.importedAt);
+    $('#kpiLastSyncSub').textContent = State.meta.importFilename || '';
+  }
+
+  $('#fc-all').textContent = total;
+  $('#fc-ready').textContent = ready;
+  $('#fc-untagged').textContent = untagged;
+  $('#fc-missing').textContent = missingAwb + corruptedAwb;
+
+  const filtered = filterRows();
+  const tbody = $('#dispatchTbody');
+  tbody.innerHTML = '';
+
+  if(filtered.length === 0){
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--ink-3)">No orders match this filter.</td></tr>`;
+  } else {
+    filtered.forEach(r => tbody.appendChild(renderRow(r)));
+  }
+
+  // Update header checkbox state
+  $('#selectAll').checked = filtered.length > 0 && filtered.every(r => State.selected.has(r.id));
+  updateBulkBar();
+  updateGenerateBtn();
+}
+
+function filterRows(){
+  let rows = State.invoices.slice();
+
+  switch(State.filter){
+    case 'ready': rows = rows.filter(r => r.awb && r.awbOk && r.courier); break;
+    case 'untagged': rows = rows.filter(r => !r.courier); break;
+    case 'missing': rows = rows.filter(r => !r.awb || !r.awbOk); break;
+  }
+
+  if(State.search){
+    const s = State.search.toLowerCase();
+    rows = rows.filter(r =>
+      (r.invoiceNo||'').toLowerCase().includes(s) ||
+      (r.orderId||'').toLowerCase().includes(s) ||
+      (r.awb||'').toLowerCase().includes(s) ||
+      (r.sku||'').toLowerCase().includes(s) ||
+      (r.customerName||'').toLowerCase().includes(s) ||
+      (r.pincode||'').includes(s)
+    );
+  }
+  return rows;
+}
+
+function renderRow(r){
+  const tr = document.createElement('tr');
+
+  const platformLabel = { amazon:'Amazon', flipkart:'Flipkart', d2c:'D2C', unknown:'?' }[r.platform];
+
+  const courierCell = r.courier
+    ? `<span class="courier-tag ${r.courier}"><span class="badge"></span>${r.courier.charAt(0).toUpperCase()+r.courier.slice(1)}${r.courierInferred ? ' <span style="opacity:0.5">~</span>' : ''}</span>`
+    : `<span class="courier-tag untagged"><span class="badge"></span>Untagged</span>`;
+
+  let statusFlag;
+  if(!r.awb) statusFlag = `<span class="status-flag breached"><span class="pulse"></span>No AWB</span>`;
+  else if(!r.awbOk) statusFlag = `<span class="status-flag breached"><span class="pulse"></span>Bad AWB</span>`;
+  else if(!r.courier) statusFlag = `<span class="status-flag atrisk"><span class="pulse"></span>Tag courier</span>`;
+  else statusFlag = `<span class="status-flag ready"><span class="pulse"></span>Ready</span>`;
+
+  const checked = State.selected.has(r.id) ? 'checked' : '';
+
+  let awbCell;
+  if(!r.awb){
+    awbCell = `<span style="color:var(--red)">missing</span>`;
+  } else if(!r.awbOk){
+    const tip = r.awbIssue === 'scientific_notation'
+      ? 'Mangled by spreadsheet export — fix in InvoLens'
+      : 'Malformed AWB — verify at source';
+    awbCell = `<span style="color:var(--red)" title="${tip}">${r.awb} ⚠</span>`;
+  } else {
+    awbCell = r.awb;
+  }
+
+  tr.innerHTML = `
+    <td><input type="checkbox" data-row-id="${r.id}" ${checked} /></td>
+    <td class="mono" title="${r.invoiceNo}">${(r.invoiceNo||'').replace('inv_imp_','').slice(0,16)}…</td>
+    <td class="mono">${r.orderId || '—'}</td>
+    <td><span class="tag ${r.platform}">${platformLabel}</span></td>
+    <td><span class="mono" style="font-size:11px">${r.sku||'—'}</span><div style="font-size:11px;color:var(--ink-3)" class="truncate">${r.productName||''}</div></td>
+    <td>${r.customerName||'—'}</td>
+    <td class="mono">${r.pincode||'—'}</td>
+    <td class="mono" style="font-size:12px">${awbCell}</td>
+    <td>${courierCell}</td>
+    <td>${statusFlag}</td>
+  `;
+
+  tr.querySelector('input[type="checkbox"]').addEventListener('change', (e) => {
+    if(e.target.checked) State.selected.add(r.id);
+    else State.selected.delete(r.id);
+    updateBulkBar();
+    updateGenerateBtn();
+  });
+
+  return tr;
+}
+
+function updateBulkBar(){
+  const count = State.selected.size;
+  if(count > 0){
+    $('#bulkBar').style.display = 'flex';
+    $('#selectedCountText').textContent = count + ' selected';
+  } else {
+    $('#bulkBar').style.display = 'none';
+  }
+}
+function updateGenerateBtn(){
+  const ready = State.invoices.filter(r => r.awb && r.awbOk && r.courier);
+  $('#generateBatchBtn').disabled = ready.length === 0;
+}
+
+/* ------------------- Tabs ------------------- */
+function bindTabs(){
+  $$('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      $$('.tab').forEach(x => x.classList.remove('active'));
+      $$('.panel').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const panel = $('#panel-' + t.dataset.panel);
+      if(panel) panel.classList.add('active');
+    });
+  });
+}
+
+/* ------------------- Filters ------------------- */
+function bindFilters(){
+  $$('.filter-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      $$('.filter-chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+      State.filter = c.dataset.filter;
+      renderDispatch();
+    });
+  });
+  $('#searchBox').addEventListener('input', (e) => {
+    State.search = e.target.value;
+    renderDispatch();
+  });
+  $('#selectAll').addEventListener('change', (e) => {
+    const filtered = filterRows();
+    if(e.target.checked) filtered.forEach(r => State.selected.add(r.id));
+    else filtered.forEach(r => State.selected.delete(r.id));
+    renderDispatch();
+  });
+  $('#bulkClearBtn').addEventListener('click', () => {
+    State.selected.clear();
+    renderDispatch();
+  });
+}
+
+/* ------------------- Import modal ------------------- */
+function openImportModal(){ $('#importModal').classList.add('active'); }
+function closeImportModal(){ $('#importModal').classList.remove('active'); }
+
+function bindImport(){
+  ['#importBtnEmpty', '#reimportBtn'].forEach(sel => {
+    const el = $(sel);
+    if(el) el.addEventListener('click', openImportModal);
+  });
+  $('#cancelImportBtn').addEventListener('click', closeImportModal);
+  $('#importModal').addEventListener('click', (e) => {
+    if(e.target.id === 'importModal') closeImportModal();
+  });
+
+  const dropZone = $('#dropZone');
+  const fileInput = $('#fileInput');
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if(f) readJsonFile(f);
+  });
+  ['dragenter','dragover'].forEach(ev => {
+    dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  });
+  ['dragleave','drop'].forEach(ev => {
+    dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.remove('dragover'); });
+  });
+  dropZone.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if(f) readJsonFile(f);
+  });
+}
+function readJsonFile(f){
+  const reader = new FileReader();
+  reader.onload = ev => importInvoLensJSON(ev.target.result, f.name);
+  reader.onerror = () => toast('Could not read file', 'error');
+  reader.readAsText(f);
+}
+
+/* ------------------- Settings UI ------------------- */
+function bindSettings(){
+  $$('.settings-nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      $$('.settings-nav-item').forEach(x => x.classList.remove('active'));
+      item.classList.add('active');
+      const target = item.dataset.section;
+      $$('.settings-section').forEach(s => {
+        s.style.display = (s.dataset.section === target) ? 'block' : 'none';
+      });
+    });
+  });
+
+  // Threshold sliders
+  ['stale','atrisk','breach'].forEach(k => {
+    const input = $('#thr-' + k + '-input');
+    const label = $('#thr-' + k);
+    input.addEventListener('input', () => { label.textContent = input.value; });
+  });
+
+  // Save handlers
+  $$('[data-save-section]').forEach(btn => {
+    btn.addEventListener('click', () => saveSettingsSection(btn.dataset.saveSection));
+  });
+
+  $('#syncDriveBtn').addEventListener('click', syncDriveNow);
+  $('#reauthDriveBtn').addEventListener('click', () => { State.drive.accessToken = null; State.drive.connected = false; renderDriveStatus(); ensureDrive(); });
+}
+
+function saveSettingsSection(section){
+  if(section === 'couriers'){
+    State.settings.shiprocket.email = $('#cred-sr-email').value || State.settings.shiprocket.email;
+    State.settings.shiprocket.password = $('#cred-sr-password').value || State.settings.shiprocket.password;
+    State.settings.delhivery.token = $('#cred-dl-token').value || State.settings.delhivery.token;
+    State.settings.bluedart.license = $('#cred-bd-license').value || State.settings.bluedart.license;
+    State.settings.bluedart.customer = $('#cred-bd-customer').value || State.settings.bluedart.customer;
+  }
+  if(section === 'messaging'){
+    State.settings.interakt.apiKey = $('#cred-it-key').value || State.settings.interakt.apiKey;
+    State.settings.alerts.opsPhones = $('#cred-ops-phones').value || State.settings.alerts.opsPhones;
+    State.settings.alerts.opsEmail = $('#cred-ops-email').value || State.settings.alerts.opsEmail;
+    State.settings.templates.pickedUp = $('#tpl-pickedup').value || State.settings.templates.pickedUp;
+    State.settings.templates.ofd = $('#tpl-ofd').value || State.settings.templates.ofd;
+  }
+  if(section === 'thresholds'){
+    State.settings.thresholds.stale = parseInt($('#thr-stale-input').value, 10);
+    State.settings.thresholds.atrisk = parseInt($('#thr-atrisk-input').value, 10);
+    State.settings.thresholds.breach = parseInt($('#thr-breach-input').value, 10);
+  }
+  persistLocal();
+  applySettingsToInputs();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_settings.json', State.settings)
+      .then(()=>toast('Settings saved to Drive', 'success'))
+      .catch(()=>toast('Saved locally — Drive write failed', 'error'));
+  } else {
+    toast('Saved locally (Drive not connected)', 'success');
+  }
+}
+
+function applySettingsToInputs(){
+  // Mask credentials in the UI: show empty placeholders if value is set
+  const map = [
+    ['cred-sr-email', State.settings.shiprocket.email, false],
+    ['cred-sr-password', State.settings.shiprocket.password, true],
+    ['cred-dl-token', State.settings.delhivery.token, true],
+    ['cred-bd-license', State.settings.bluedart.license, true],
+    ['cred-bd-customer', State.settings.bluedart.customer, false],
+    ['cred-it-key', State.settings.interakt.apiKey, true],
+    ['cred-ops-phones', State.settings.alerts.opsPhones, false],
+    ['cred-ops-email', State.settings.alerts.opsEmail, false],
+    ['tpl-pickedup', State.settings.templates.pickedUp, false],
+    ['tpl-ofd', State.settings.templates.ofd, false]
+  ];
+  map.forEach(([id, val, mask]) => {
+    const el = $('#' + id);
+    if(!el) return;
+    if(val){
+      el.placeholder = mask ? maskCred(val) : val;
+      el.value = '';
+    }
+  });
+  // Thresholds
+  $('#thr-stale-input').value = State.settings.thresholds.stale;
+  $('#thr-atrisk-input').value = State.settings.thresholds.atrisk;
+  $('#thr-breach-input').value = State.settings.thresholds.breach;
+  $('#thr-stale').textContent = State.settings.thresholds.stale;
+  $('#thr-atrisk').textContent = State.settings.thresholds.atrisk;
+  $('#thr-breach').textContent = State.settings.thresholds.breach;
+}
+
+/* ------------------- Google Drive (drive.file scope) ------------------- */
+let tokenClient = null;
+
+function initDrive(){
+  if(typeof google === 'undefined' || !google.accounts){
+    setTimeout(initDrive, 300);
+    return;
+  }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: OAUTH_CLIENT_ID,
+    scope: DRIVE_SCOPES,
+    callback: (resp) => {
+      if(resp.error){
+        toast('Drive auth failed: ' + resp.error, 'error');
+        return;
+      }
+      State.drive.accessToken = resp.access_token;
+      State.drive.connected = true;
+      renderDriveStatus();
+      toast('Drive connected', 'success');
+      // Hydrate from Drive
+      readDriveJSON('tracklens_settings.json').then(s => {
+        if(s) Object.assign(State.settings, s);
+        applySettingsToInputs();
+      }).catch(()=>{});
+    }
+  });
+}
+
+function ensureDrive(){
+  if(!tokenClient){ initDrive(); setTimeout(ensureDrive, 400); return; }
+  if(State.drive.accessToken) return;
+  tokenClient.requestAccessToken({ prompt: '' });
+}
+
+async function findFileId(name){
+  const q = encodeURIComponent(`name='${name}' and '${DRIVE_FOLDER_ID}' in parents and trashed=false`);
+  const resp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)`, {
+    headers: { Authorization: 'Bearer ' + State.drive.accessToken }
+  });
+  if(!resp.ok) throw new Error('list failed');
+  const j = await resp.json();
+  return j.files && j.files[0] ? j.files[0].id : null;
+}
+
+async function writeDriveJSON(name, data){
+  if(!State.drive.accessToken) throw new Error('not connected');
+  const existingId = await findFileId(name);
+  const metadata = existingId
+    ? null
+    : { name, parents: [DRIVE_FOLDER_ID] };
+
+  const boundary = '-------tracklens' + Date.now();
+  const delim = '\r\n--' + boundary + '\r\n';
+  const closeDelim = '\r\n--' + boundary + '--';
+
+  let body = '';
+  if(metadata){
+    body += delim + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata);
+  }
+  body += delim + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(data) + closeDelim;
+
+  const url = existingId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=multipart`
+    : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+
+  const resp = await fetch(url, {
+    method: existingId ? 'PATCH' : 'POST',
+    headers: {
+      Authorization: 'Bearer ' + State.drive.accessToken,
+      'Content-Type': 'multipart/related; boundary=' + boundary
+    },
+    body
+  });
+  if(!resp.ok) throw new Error('write failed');
+  State.drive.lastSync = new Date().toISOString();
+  renderDriveStatus();
+  return resp.json();
+}
+
+async function readDriveJSON(name){
+  if(!State.drive.accessToken) return null;
+  const id = await findFileId(name);
+  if(!id) return null;
+  const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, {
+    headers: { Authorization: 'Bearer ' + State.drive.accessToken }
+  });
+  if(!resp.ok) return null;
+  return resp.json();
+}
+
+async function syncDriveNow(){
+  if(!State.drive.connected){ ensureDrive(); return; }
+  try{
+    await writeDriveJSON('tracklens_settings.json', State.settings);
+    if(State.invoices.length){
+      await writeDriveJSON('tracklens_orders.json', State.invoices);
+    }
+    toast('Synced to Drive', 'success');
+  }catch(e){
+    toast('Sync failed: ' + e.message, 'error');
+  }
+}
+
+function renderDriveStatus(){
+  const pill = $('#driveSyncPill');
+  const text = $('#driveSyncText');
+  const btn = $('#connectDriveBtn');
+  if(State.drive.connected){
+    pill.classList.add('connected'); pill.classList.remove('error');
+    text.textContent = 'Drive: Connected';
+    btn.textContent = 'Re-auth';
+  } else {
+    pill.classList.remove('connected');
+    text.textContent = 'Drive: Not connected';
+    btn.textContent = 'Connect Drive';
+  }
+  const block = $('#driveStatusBlock');
+  if(block){
+    block.innerHTML = `
+      <div>Status: <strong>${State.drive.connected ? 'Connected' : 'Disconnected'}</strong></div>
+      <div>Folder: <strong>${DRIVE_FOLDER_ID}</strong></div>
+      <div>Last sync: <strong>${State.drive.lastSync ? fmtDate(State.drive.lastSync) : 'never'}</strong></div>
+      <div>Files in scope: <strong>tracklens_orders.json, tracklens_settings.json, tracklens_status.json, tracklens_alerts.json</strong></div>
+    `;
+  }
+}
+
+/* ------------------- Init ------------------- */
+function init(){
+  bindTabs();
+  bindFilters();
+  bindImport();
+  bindSettings();
+
+  $('#connectDriveBtn').addEventListener('click', ensureDrive);
+  $('#testCouriersBtn').addEventListener('click', () => {
+    toast('Connection test — coming in v1.1 with first courier integration', 'info');
+  });
+  $('#bulkAssignBtn').addEventListener('click', () => {
+    toast('Bulk courier assignment — coming in v1.1', 'info');
+  });
+  $('#bulkGenerateBtn').addEventListener('click', () => {
+    toast('Label batch generation — coming in v1.1', 'info');
+  });
+  $('#generateBatchBtn').addEventListener('click', () => {
+    toast('Label batch generation — coming in v1.1', 'info');
+  });
+
+  restoreLocal();
+  applySettingsToInputs();
+  renderDispatch();
+  renderDriveStatus();
+  initDrive();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+
+</body>
+</html>
