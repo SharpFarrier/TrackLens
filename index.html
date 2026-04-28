@@ -1737,20 +1737,28 @@ async function cargoDownloadLabel(awb, filenamePrefix = 'label'){
 
   console.log('[TrackLens][Cargo] label_url from Cargo:', labelUrl);
 
-  // Cargo's label URLs (S3 URLs with non-standard colon-signatures) cannot
-  // be fetched directly from S3 — Cargo wraps them through their own authenticated
-  // download endpoint:
-  //   GET /api/common/download_file?code=<full_s3_url_with_colon_sig>
-  // The endpoint needs the JWT auth header. The S3 URL is passed verbatim as the
-  // `code` parameter — including the `https://` prefix and the trailing `:SIG`.
-  const downloadPath = '/common/download_file?code=' + encodeURIComponent(labelUrl);
-  const downloadUrl = base + '/cargo' + downloadPath;
+  // Cargo returns label_url in two possible shapes:
+  //   A) Already wrapped: https://api-cargo.shiprocket.in/api/common/download_file?code=https://...
+  //      → re-route through our proxy and call as a normal authenticated Cargo API call
+  //   B) Raw S3 URL with colon-signature: https://ltl-prod-docs.s3.amazonaws.com/.../file.pdf:SIGNATURE
+  //      → wrap it in /common/download_file?code=<S3_URL> ourselves, then call through proxy
+  let downloadProxyUrl;
+  if(labelUrl.startsWith('https://api-cargo.shiprocket.in/')){
+    // Already wrapped — strip the host and route through our proxy
+    const cargoPath = labelUrl.replace(/^https:\/\/api-cargo\.shiprocket\.in\/api/, '');
+    downloadProxyUrl = base + '/cargo' + cargoPath;
+  } else {
+    // Raw S3 URL — wrap in download_file ourselves
+    const downloadPath = '/common/download_file?code=' + encodeURIComponent(labelUrl);
+    downloadProxyUrl = base + '/cargo' + downloadPath;
+  }
+
   const isJwt = /^eyJ/.test(token);
   const authHeader = isJwt ? ('Bearer ' + token) : ('token ' + token);
 
-  console.log('[TrackLens][Cargo] downloading via:', downloadPath.slice(0, 60) + '...');
+  console.log('[TrackLens][Cargo] downloading via proxy:', downloadProxyUrl.slice(0, 100) + '...');
 
-  const resp = await fetch(downloadUrl, {
+  const resp = await fetch(downloadProxyUrl, {
     method: 'GET',
     headers: { 'Authorization': authHeader }
   });
