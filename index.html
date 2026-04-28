@@ -1707,21 +1707,42 @@ async function cargoGetLabelUrlForAwb(awb){
 async function cargoDownloadLabel(awb, filenamePrefix = 'label'){
   const { labelUrl, shipmentId } = await cargoGetLabelUrlForAwb(awb);
   const base = getProxyBase();
+
+  // Surface the URL Cargo gave us — critical for debugging download failures
+  console.log('[TrackLens][Cargo] label_url from Cargo:', labelUrl);
+
   // Cargo's URL format is unusual: `https://host/path/file.pdf:SIGNATURE`
-  // The colon-signature is appended after the .pdf. We pass it through verbatim;
-  // the Worker's /fetch route just GETs whatever URL we give it.
-  const proxiedUrl = base + '/fetch?url=' + encodeURIComponent(labelUrl);
-  const resp = await fetch(proxiedUrl);
-  if(!resp.ok){
-    // If the colon-signed URL doesn't work, try stripping the signature
-    const stripped = labelUrl.replace(/:[A-Za-z0-9_-]+$/, '');
-    if(stripped !== labelUrl){
-      const retry = await fetch(base + '/fetch?url=' + encodeURIComponent(stripped));
-      if(retry.ok) return _streamDownload(retry, awb, filenamePrefix, shipmentId);
-    }
-    throw new Error(`Label fetch failed: HTTP ${resp.status}`);
+  // The colon-suffix breaks standard S3 signing. Try multiple strategies:
+  //   1. Use the URL verbatim (in case S3 actually accepts it)
+  //   2. Strip the colon-suffix (in case it's just a checksum, not auth)
+  //   3. Replace colon with ? (in case it's malformed query-string)
+  const strategies = [
+    { name: 'verbatim', url: labelUrl },
+  ];
+  if(/:[A-Za-z0-9_=+/-]+$/.test(labelUrl)){
+    strategies.push({ name: 'stripped', url: labelUrl.replace(/:[A-Za-z0-9_=+/-]+$/, '') });
+    strategies.push({ name: 'colon→?', url: labelUrl.replace(/:([A-Za-z0-9_=+/-]+)$/, '?$1') });
   }
-  return _streamDownload(resp, awb, filenamePrefix, shipmentId);
+
+  let lastErr = null;
+  for(const strat of strategies){
+    const proxiedUrl = base + '/fetch?url=' + encodeURIComponent(strat.url);
+    console.log(`[TrackLens][Cargo] download attempt "${strat.name}":`, strat.url.slice(0, 80) + '...');
+    try{
+      const resp = await fetch(proxiedUrl);
+      if(resp.ok){
+        const ct = resp.headers.get('content-type') || '';
+        console.log(`[TrackLens][Cargo] download "${strat.name}" → ${resp.status}, content-type: ${ct}`);
+        return _streamDownload(resp, awb, filenamePrefix, shipmentId);
+      }
+      lastErr = `HTTP ${resp.status} on "${strat.name}"`;
+      console.warn(`[TrackLens][Cargo] download "${strat.name}" failed: ${resp.status}`);
+    } catch(err){
+      lastErr = err.message;
+      console.warn(`[TrackLens][Cargo] download "${strat.name}" error:`, err.message);
+    }
+  }
+  throw new Error(`Label fetch failed after trying ${strategies.length} URL formats. Last error: ${lastErr}`);
 }
 
 async function _streamDownload(resp, awb, prefix, shipmentId){
