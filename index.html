@@ -1090,9 +1090,9 @@
     <!-- Manual invoice upload zone -->
     <div class="invoice-zone" id="invoiceZone">
       <div class="info">
-        <strong>Invoice source:</strong> <span id="invoiceSourceText">Auto-fetch from Drive (per-order PDFs from InvoLens)</span>
+        <strong>Invoice source:</strong> <span id="invoiceSourceText">Auto-fetch from Drive — looks up <span class="mono" style="font-size:11px">&lt;order_id&gt;.pdf</span> in InvoLens Invoices folder</span>
         <div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">
-          Falls back to manual upload if any record is missing <span class="mono">invoice_pdf.drive_id</span>.
+          Configure folder ID in <strong>Settings → Drive Sync</strong>. Falls back to manual upload if any record is missing.
         </div>
       </div>
       <div class="actions">
@@ -1319,6 +1319,17 @@
             </div>
           </div>
 
+          <div class="field-group">
+            <label>InvoLens Invoices folder ID <span style="color:var(--ink-3);text-transform:none;letter-spacing:0">(Drive folder where InvoLens stores per-order invoice PDFs)</span></label>
+            <input type="text" class="mono" id="cfg-involens-folder" placeholder="1AuLczHZefz3HW86gPWHNowglojp2cyqc" data-cred="involens.invoicesFolderId" />
+            <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
+              Found in the folder URL: <span class="mono">drive.google.com/drive/folders/&lt;FOLDER_ID&gt;</span>.
+              TrackLens looks up <span class="mono">&lt;order_id&gt;.pdf</span> in this folder during dispatch.
+              <button class="btn ghost sm" id="testInvolensFolderBtn" type="button" style="margin-left:6px">Test</button>
+              <span id="involensFolderResult" class="mono" style="margin-left:6px;font-size:11px"></span>
+            </div>
+          </div>
+
           <div id="driveStatusBlock" style="background:var(--surface-2);padding:14px;border-radius:6px;font-size:12px;color:var(--ink-2);font-family:'JetBrains Mono',monospace;line-height:1.7"></div>
 
           <div class="save-row">
@@ -1331,8 +1342,8 @@
           <h3>About TrackLens</h3>
           <p class="desc">Honey Touch shipment dispatch & SLA tracker. Reads orders from InvoLens, fetches shipping labels from courier APIs, monitors status, and triggers alerts.</p>
           <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);line-height:2">
-            <div>Version: <strong>1.1.1</strong> (Cargo single-order label fetch)</div>
-            <div>Canonical: <strong>tracklens_v1.1.1.html</strong></div>
+            <div>Version: <strong>1.1.2</strong> (Bulk dispatch — Cargo labels + Drive invoice fetch)</div>
+            <div>Canonical: <strong>tracklens_v1.1.2.html</strong></div>
             <div>Storage key: <strong>tracklens_v1</strong></div>
             <div>Build date: 2026-04-28</div>
           </div>
@@ -1407,7 +1418,8 @@ const State = {
     alerts: { opsPhones: '', opsEmail: '' },
     templates: { pickedUp: '', ofd: '' },
     thresholds: { stale: 48, atrisk: 24, breach: 12 },
-    proxy: { url: '' }
+    proxy: { url: '' },
+    involens: { invoicesFolderId: '' }       // Drive folder where InvoLens stores invoice PDFs
   },
   // Auth state — for Cargo, tokens come directly from the user (panel-generated)
   // and we just verify by hitting an authenticated endpoint. No login flow needed.
@@ -1554,6 +1566,9 @@ function restoreLocal(){
     if(parsed.dispatched) State.dispatched = parsed.dispatched;
     if(parsed.batchHistory) State.batch.history = parsed.batchHistory;
   }catch(e){}
+  // Defensive defaults — fields added in later versions may not be in older saves
+  if(!State.settings.involens) State.settings.involens = { invoicesFolderId: '' };
+  if(!State.settings.proxy) State.settings.proxy = { url: '' };
 }
 
 /* ------------------- InvoLens import ------------------- */
@@ -2317,6 +2332,42 @@ async function testProxyHealth(){
   }
 }
 
+async function testInvolensFolder(){
+  const result = $('#involensFolderResult');
+  const btn = $('#testInvolensFolderBtn');
+  btn.disabled = true;
+  result.textContent = 'Checking...';
+  result.style.color = 'var(--ink-3)';
+  try{
+    const id = $('#cfg-involens-folder').value.trim();
+    if(!id) throw new Error('No folder ID entered');
+    State.settings.involens.invoicesFolderId = id;
+    persistLocal();
+    if(!State.drive.connected) throw new Error('Connect Drive first');
+    // Fetch folder metadata to confirm access
+    const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=id,name,mimeType`;
+    const resp = await fetch(url, { headers: { 'Authorization': 'Bearer ' + State.drive.accessToken }});
+    if(!resp.ok) throw new Error(`HTTP ${resp.status} — folder not accessible`);
+    const folder = await resp.json();
+    if(folder.mimeType !== 'application/vnd.google-apps.folder'){
+      throw new Error(`Not a folder (got ${folder.mimeType})`);
+    }
+    // Quick listing for count
+    const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q='${id}' in parents and trashed=false and mimeType='application/pdf'&fields=files(id)&pageSize=1000`, {
+      headers: { 'Authorization': 'Bearer ' + State.drive.accessToken }
+    });
+    const list = await listResp.json();
+    const count = (list.files || []).length;
+    result.textContent = `✓ "${folder.name}" — ${count}+ PDFs`;
+    result.style.color = 'var(--green)';
+  } catch(err){
+    result.textContent = `✗ ${err.message}`;
+    result.style.color = 'var(--red)';
+  } finally{
+    btn.disabled = false;
+  }
+}
+
 /* ============================================================
  * v1.1.2 — Dispatch (batch) screen logic
  * ============================================================
@@ -2653,6 +2704,7 @@ async function runDispatchBatch(){
 
   State.batch.runState = 'running';
   State.batch.log = [];
+  _invoicesFolderIndex = null;   // fresh index per batch
   $('#batchProgress').style.display = '';
   $('#batchProgressLog').innerHTML = '';
   setBatchProgress(0, queue.length, 'Starting…');
@@ -2782,10 +2834,66 @@ async function mergePdfs(byteArrays){
   return await out.save();
 }
 
+/* Cache of folder listing — { folderId: { name → driveFileId } }.
+ * Cleared on each batch run start (set to null) to ensure fresh data per dispatch.
+ */
+let _invoicesFolderIndex = null;
+
+async function buildInvoicesFolderIndex(folderId){
+  if(!folderId) throw new Error('InvoLens Invoices folder ID not set. Settings → Drive Sync.');
+  if(!State.drive.accessToken) throw new Error('Drive not connected.');
+
+  const map = {};      // filename (lowercase) → driveFileId
+  const sizes = {};    // filename → size_bytes
+  let pageToken = null;
+  let pageNum = 0;
+  do {
+    pageNum++;
+    const params = new URLSearchParams({
+      q: `'${folderId}' in parents and trashed=false and mimeType='application/pdf'`,
+      fields: 'nextPageToken,files(id,name,size)',
+      pageSize: '1000'
+    });
+    if(pageToken) params.set('pageToken', pageToken);
+    const url = 'https://www.googleapis.com/drive/v3/files?' + params.toString();
+    const resp = await fetch(url, {
+      headers: { 'Authorization': 'Bearer ' + State.drive.accessToken }
+    });
+    if(!resp.ok){
+      const txt = await resp.text().catch(()=>'');
+      throw new Error(`Drive list HTTP ${resp.status}: ${txt.slice(0, 200)}`);
+    }
+    const data = await resp.json();
+    (data.files || []).forEach(f => {
+      // Index by both raw name and lowercase, sans .pdf suffix
+      const stripped = f.name.replace(/\.pdf$/i, '');
+      map[stripped.toLowerCase()] = f.id;
+      sizes[stripped.toLowerCase()] = parseInt(f.size, 10) || 0;
+    });
+    pageToken = data.nextPageToken || null;
+  } while(pageToken && pageNum < 20);  // hard cap at 20K files
+
+  console.log(`[TrackLens][InvoLens] Indexed ${Object.keys(map).length} invoice PDFs from folder`);
+  return { map, sizes };
+}
+
+/* Resolve which driveFileId holds the invoice for a given record.
+ * Priority: explicit invoice_pdf.drive_id (forward-compat), then filename lookup.
+ */
+function resolveInvoiceDriveId(row, folderIndex){
+  if(row.invoicePdf?.drive_id) return row.invoicePdf.drive_id;
+  if(!folderIndex) return null;
+  const orderId = (row.orderId || '').trim();
+  if(!orderId) return null;
+  const id = folderIndex.map[orderId.toLowerCase()];
+  return id || null;
+}
+
 /* Assemble invoices PDF for the dispatched rows.
  * Strategy:
  *   1) If user uploaded a manual invoice PDF, use that (validate page count loosely).
- *   2) Else if all rows have invoice_pdf.drive_id, fetch each from Drive and merge.
+ *   2) Else look up each row's invoice in Drive — by drive_id if present in JSON,
+ *      otherwise by filename match on the InvoLens Invoices folder.
  *   3) Else throw — caller logs and continues without invoices.
  */
 async function assembleInvoicesPdf(rows){
@@ -2800,24 +2908,41 @@ async function assembleInvoicesPdf(rows){
     return m.bytes;
   }
 
-  // Auto-fetch from Drive
-  const missing = rows.filter(r => !r.invoicePdf?.drive_id);
-  if(missing.length > 0){
-    throw new Error(`${missing.length}/${rows.length} orders have no invoice in Drive (InvoLens upload not configured yet). Use manual upload above to provide invoices.`);
+  // Auto-fetch path
+  const folderId = State.settings.involens?.invoicesFolderId;
+  if(!folderId){
+    throw new Error('No InvoLens folder configured. Settings → Drive Sync → InvoLens Invoices folder ID. Or upload merged invoice PDF manually.');
   }
   if(!State.drive.connected){
     throw new Error('Drive not connected — cannot auto-fetch invoices. Connect Drive in Settings or use manual upload.');
   }
 
-  logBatch(`Fetching ${rows.length} invoice PDFs from Drive…`);
+  // Build folder index once per batch
+  if(!_invoicesFolderIndex){
+    logBatch(`Indexing invoices folder…`);
+    _invoicesFolderIndex = await buildInvoicesFolderIndex(folderId);
+    logBatch(`✓ Found ${Object.keys(_invoicesFolderIndex.map).length} invoice PDFs in Drive folder`);
+  }
+
+  // Resolve each row's invoice file
+  const resolved = rows.map(r => ({ row: r, driveId: resolveInvoiceDriveId(r, _invoicesFolderIndex) }));
+  const missing = resolved.filter(x => !x.driveId);
+  if(missing.length > 0){
+    const missingIds = missing.slice(0, 5).map(x => x.row.orderId).join(', ');
+    const more = missing.length > 5 ? ` (+${missing.length - 5} more)` : '';
+    throw new Error(`${missing.length}/${rows.length} invoices not found in Drive folder. Missing: ${missingIds}${more}. Upload merged invoice PDF manually instead.`);
+  }
+
+  // Fetch and merge in row order
+  logBatch(`Fetching ${resolved.length} invoice PDFs from Drive…`);
   const invoiceBytes = [];
-  for(let i = 0; i < rows.length; i++){
-    const r = rows[i];
+  for(let i = 0; i < resolved.length; i++){
+    const { row, driveId } = resolved[i];
     try{
-      const bytes = await fetchDriveFileBytes(r.invoicePdf.drive_id);
+      const bytes = await fetchDriveFileBytes(driveId);
       invoiceBytes.push(bytes);
     } catch(err){
-      throw new Error(`Failed to fetch invoice for ${r.orderId}: ${err.message}`);
+      throw new Error(`Failed to fetch invoice for ${row.orderId}: ${err.message}`);
     }
   }
   return await mergePdfs(invoiceBytes);
@@ -3004,6 +3129,12 @@ function saveSettingsSection(section){
   if(proxyInput && proxyInput.value){
     State.settings.proxy.url = proxyInput.value.trim().replace(/\/+$/, ''); // strip trailing slash
   }
+  // InvoLens folder ID — same treatment as proxy URL (no masking, plain text config)
+  const involensInput = $('#cfg-involens-folder');
+  if(involensInput && involensInput.value){
+    State.settings.involens = State.settings.involens || {};
+    State.settings.involens.invoicesFolderId = involensInput.value.trim();
+  }
   persistLocal();
   applySettingsToInputs();
   if(State.drive.connected){
@@ -3051,6 +3182,11 @@ function applySettingsToInputs(){
   const proxyInput = $('#cfg-proxy-url');
   if(proxyInput && State.settings.proxy && State.settings.proxy.url){
     proxyInput.value = State.settings.proxy.url;
+  }
+  // InvoLens folder ID — plain value
+  const involensInput = $('#cfg-involens-folder');
+  if(involensInput && State.settings.involens && State.settings.involens.invoicesFolderId){
+    involensInput.value = State.settings.involens.invoicesFolderId;
   }
 }
 
@@ -3232,6 +3368,7 @@ function init(){
   // Settings buttons
   $('#testCargoBtn').addEventListener('click', testCargoConnection);
   $('#testProxyBtn').addEventListener('click', testProxyHealth);
+  $('#testInvolensFolderBtn').addEventListener('click', testInvolensFolder);
   $('#clearTokensBtn').addEventListener('click', () => {
     if(confirm('Clear cached Cargo verification? You will need to re-test before fetching labels.')){
       clearAllTokens();
