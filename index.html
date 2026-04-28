@@ -649,7 +649,7 @@
 <header class="topbar">
   <div class="brand">
     <div class="logo">Track<span class="accent">Lens</span></div>
-    <div class="ver">v1.1.0</div>
+    <div class="ver">v1.1.1</div>
   </div>
   <div class="auth-cluster">
     <div class="sync-pill" id="driveSyncPill">
@@ -686,7 +686,7 @@
 
     <div class="stat-grid">
       <div class="stat-card">
-        <div class="label">Shiprocket Ready</div>
+        <div class="label">Cargo Ready</div>
         <div class="value" id="kpiPending">—</div>
         <div class="sub" id="kpiPendingSub">orders ready</div>
       </div>
@@ -714,7 +714,7 @@
       </div>
       <div class="section-actions">
         <button class="btn ghost sm" id="reimportBtn">Re-import InvoLens</button>
-        <button class="btn accent" id="generateBatchBtn" disabled>Generate Shiprocket batch</button>
+        <button class="btn accent" id="generateBatchBtn" disabled>Generate Cargo batch</button>
       </div>
     </div>
 
@@ -739,7 +739,7 @@
         <div class="selected-count"><span id="selectedCountText">0 selected</span></div>
         <div class="actions">
           <span style="font-size:11px;opacity:0.7;margin-right:6px;align-self:center">Assign to →</span>
-          <button class="btn sm" data-bulk-assign="shiprocket">Shiprocket</button>
+          <button class="btn sm" data-bulk-assign="cargo">Cargo</button>
           <button class="btn sm" data-bulk-assign="bluedart">Bluedart</button>
           <button class="btn sm" data-bulk-assign="delhivery">Delhivery</button>
           <button class="btn sm ghost" data-bulk-assign="">Untag</button>
@@ -761,6 +761,7 @@
               <th>AWB</th>
               <th>Courier</th>
               <th style="width:80px">Status</th>
+              <th style="width:110px">Action</th>
             </tr>
           </thead>
           <tbody id="dispatchTbody"></tbody>
@@ -813,14 +814,28 @@
           <h3>Courier API Credentials</h3>
           <p class="desc">Saved encrypted to your Drive folder. Used to fetch shipping labels and track status. Click "Edit" to update; values are masked otherwise.</p>
 
-          <!-- Shiprocket -->
+          <!-- Shiprocket Cargo (heavy/B2B logistics) -->
           <div class="field-group">
-            <label>Shiprocket — Email + Password (token auto-refreshes)</label>
-            <div class="field-row">
-              <input type="email" id="cred-sr-email" placeholder="email@example.com" data-cred="shiprocket.email" />
-              <input type="password" id="cred-sr-password" placeholder="••••••••" data-cred="shiprocket.password" />
-            </div>
+            <label>Shiprocket Cargo — API Token <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from <span class="mono">app-cargo.shiprocket.in → Settings → API Token</span>)</span></label>
+            <input type="password" class="mono" id="cred-cargo-token" placeholder="40-character hex token" data-cred="cargo.token" />
           </div>
+
+          <div class="field-group">
+            <label>Shiprocket Cargo — Refresh Token <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(JWT, from same panel — for automatic token renewal)</span></label>
+            <input type="password" class="mono" id="cred-cargo-refresh" placeholder="Refresh JWT" data-cred="cargo.refresh" />
+          </div>
+
+          <!-- Shiprocket Quick (e-commerce, deferred) -->
+          <details style="margin-bottom:14px;padding:10px;background:var(--surface-2);border-radius:5px;font-size:12px">
+            <summary style="cursor:pointer;color:var(--ink-2)">Shiprocket Quick / X (e-commerce panel — coming later)</summary>
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+              <div class="field-row">
+                <input type="email" id="cred-sr-email" placeholder="Email (deferred)" data-cred="shiprocket.email" disabled style="opacity:0.5" />
+                <input type="password" id="cred-sr-password" placeholder="Password (deferred)" data-cred="shiprocket.password" disabled style="opacity:0.5" />
+              </div>
+              <div style="margin-top:6px;color:var(--ink-3)">Will be enabled once Cargo flow is validated.</div>
+            </div>
+          </details>
 
           <!-- Delhivery -->
           <div class="field-group">
@@ -838,12 +853,12 @@
           </div>
 
           <div class="save-row">
-            <button class="btn ghost sm" id="testShiprocketBtn">Test Shiprocket</button>
+            <button class="btn ghost sm" id="testCargoBtn">Test Cargo</button>
             <button class="btn ghost sm" id="clearTokensBtn" title="Clear cached auth tokens">Clear cached tokens</button>
             <button class="btn sm" data-save-section="couriers">Save credentials</button>
           </div>
 
-          <div id="shiprocketAuthResult" style="display:none;margin-top:14px;padding:12px;border-radius:6px;font-size:12px;line-height:1.6"></div>
+          <div id="cargoAuthResult" style="display:none;margin-top:14px;padding:12px;border-radius:6px;font-size:12px;line-height:1.6"></div>
         </div>
 
         <div class="settings-section" data-section="messaging" style="display:none">
@@ -952,17 +967,17 @@
           <h3>About TrackLens</h3>
           <p class="desc">Honey Touch shipment dispatch & SLA tracker. Reads orders from InvoLens, fetches shipping labels from courier APIs, monitors status, and triggers alerts.</p>
           <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);line-height:2">
-            <div>Version: <strong>1.1.0</strong> (manual courier assignment + Shiprocket auth)</div>
-            <div>Canonical: <strong>tracklens_v1.1.0.html</strong></div>
+            <div>Version: <strong>1.1.1</strong> (Cargo single-order label fetch)</div>
+            <div>Canonical: <strong>tracklens_v1.1.1.html</strong></div>
             <div>Storage key: <strong>tracklens_v1</strong></div>
             <div>Build date: 2026-04-28</div>
           </div>
           <div style="margin-top:18px;padding:14px;background:var(--surface-2);border-radius:6px;font-size:12px;line-height:1.8">
             <strong>Roadmap:</strong><br>
             v1.0 — Auth + InvoLens import + dispatch queue<br>
-            <strong>v1.1.0 — Manual courier assignment + Shiprocket auth (you are here)</strong><br>
-            v1.1.1 — Single-order Shiprocket label test<br>
-            v1.1.2 — Bulk Shiprocket label + invoice + manifest PDFs<br>
+            v1.1.0 — Manual courier assignment + Cargo auth scaffolding<br>
+            <strong>v1.1.1 — Cargo single-order label fetch (you are here)</strong><br>
+            v1.1.2 — Cargo bulk label + invoice + manifest PDFs<br>
             v1.2 — Bluedart direct integration (40% of volume)<br>
             v1.3 — Delhivery direct integration (10% of volume)<br>
             v1.4 — Live tracking grid<br>
@@ -1020,7 +1035,8 @@ const State = {
   filter: 'all',
   search: '',
   settings: {
-    shiprocket: { email: '', password: '' },
+    cargo: { token: '', refresh: '' },        // Shiprocket Cargo (active in v1.1.1)
+    shiprocket: { email: '', password: '' },  // Shiprocket Quick (deferred)
     delhivery: { token: '' },
     bluedart: { license: '', customer: '' },
     interakt: { apiKey: '' },
@@ -1029,12 +1045,11 @@ const State = {
     thresholds: { stale: 48, atrisk: 24, breach: 12 },
     proxy: { url: '' }
   },
-  // Auth token cache — token lasts 10 days per Shiprocket API docs.
-  // We cache it in Drive (not localStorage) so it survives device switches and
-  // doesn't get wiped by browser cache clears. Format:
-  //   { shiprocket: { token: 'eyJ...', issuedAt: '2026-...', expiresAt: '2026-...', accountInfo: {...} } }
+  // Auth state — for Cargo, tokens come directly from the user (panel-generated)
+  // and we just verify by hitting an authenticated endpoint. No login flow needed.
   tokens: {
-    shiprocket: null
+    cargo: null,        // { verifiedAt, accountInfo? }
+    shiprocket: null    // (deferred)
   },
   drive: {
     accessToken: null,
@@ -1269,14 +1284,15 @@ function renderDispatch(){
   const untagged = State.invoices.filter(r => !r.courier).length;
   const missingAwb = State.invoices.filter(r => !r.awb).length;
   const corruptedAwb = State.invoices.filter(r => r.awb && !r.awbOk).length;
-  const shiprocketReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'shiprocket').length;
+  const cargoReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'cargo').length;
   const bluedartTagged = State.invoices.filter(r => r.courier === 'bluedart').length;
   const delhiveryTagged = State.invoices.filter(r => r.courier === 'delhivery').length;
+  const labelsFetched = State.invoices.filter(r => r.lastFetchedAt).length;
   // "Ready" overall = anything tagged + good AWB
   const ready = State.invoices.filter(r => r.awb && r.awbOk && r.courier).length;
 
-  $('#kpiPending').textContent = shiprocketReady;
-  $('#kpiPendingSub').textContent = `BD: ${bluedartTagged}  ·  DL: ${delhiveryTagged}`;
+  $('#kpiPending').textContent = cargoReady;
+  $('#kpiPendingSub').textContent = `BD: ${bluedartTagged}  ·  DL: ${delhiveryTagged}  ·  fetched: ${labelsFetched}`;
   $('#kpiUntagged').textContent = untagged;
   $('#kpiMissingAwb').textContent = missingAwb + corruptedAwb;
 
@@ -1295,7 +1311,7 @@ function renderDispatch(){
   tbody.innerHTML = '';
 
   if(filtered.length === 0){
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--ink-3)">No orders match this filter.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--ink-3)">No orders match this filter.</td></tr>`;
   } else {
     filtered.forEach(r => tbody.appendChild(renderRow(r)));
   }
@@ -1334,25 +1350,43 @@ function renderRow(r){
 
   const platformLabel = { amazon:'Amazon', flipkart:'Flipkart', d2c:'D2C', unknown:'?' }[r.platform];
 
-  // Courier cell is now an editable dropdown (manual assignment per row)
+  // Courier cell is now an editable dropdown (manual assignment per row).
+  // v1.1.1: Cargo is the active integration. Other options are placeholders for v1.2/v1.3.
   const courierOptions = [
     { val: '', label: '— Untagged —' },
-    { val: 'shiprocket', label: 'Shiprocket' },
+    { val: 'cargo', label: 'Shiprocket Cargo' },
     { val: 'bluedart', label: 'Bluedart' },
-    { val: 'delhivery', label: 'Delhivery' }
+    { val: 'delhivery', label: 'Delhivery' },
+    { val: 'shiprocket', label: 'Shiprocket Quick (deferred)' }
   ];
   const courierCell = `<select class="courier-select ${r.courier ? 'tagged' : ''}" data-row-courier="${r.id}">
     ${courierOptions.map(o => `<option value="${o.val}" ${r.courier === o.val ? 'selected' : ''}>${o.label}</option>`).join('')}
   </select>`;
 
   let statusFlag;
-  if(!r.awb) statusFlag = `<span class="status-flag breached"><span class="pulse"></span>No AWB</span>`;
-  else if(!r.awbOk) statusFlag = `<span class="status-flag breached"><span class="pulse"></span>Bad AWB</span>`;
-  else if(!r.courier) statusFlag = `<span class="status-flag atrisk"><span class="pulse"></span>Tag courier</span>`;
-  else if(r.courier === 'shiprocket') statusFlag = `<span class="status-flag intransit"><span class="pulse"></span>SR ready</span>`;
-  else if(r.courier === 'bluedart') statusFlag = `<span class="status-flag ready" title="Bluedart integration in v1.2"><span class="pulse"></span>BD pending</span>`;
-  else if(r.courier === 'delhivery') statusFlag = `<span class="status-flag ready" title="Delhivery integration in v1.3"><span class="pulse"></span>DL pending</span>`;
-  else statusFlag = `<span class="status-flag ready"><span class="pulse"></span>Ready</span>`;
+  let actionCell = '';
+  if(!r.awb) {
+    statusFlag = `<span class="status-flag breached"><span class="pulse"></span>No AWB</span>`;
+  } else if(!r.awbOk) {
+    statusFlag = `<span class="status-flag breached"><span class="pulse"></span>Bad AWB</span>`;
+  } else if(!r.courier) {
+    statusFlag = `<span class="status-flag atrisk"><span class="pulse"></span>Tag courier</span>`;
+  } else if(r.courier === 'cargo') {
+    if(r.lastFetchedAt){
+      statusFlag = `<span class="status-flag delivered"><span class="pulse"></span>Label fetched</span>`;
+    } else {
+      statusFlag = `<span class="status-flag intransit"><span class="pulse"></span>Cargo ready</span>`;
+    }
+    actionCell = `<button class="btn ghost sm" data-fetch-label="${r.id}" style="font-size:11px;padding:4px 8px">Fetch label</button>`;
+  } else if(r.courier === 'bluedart') {
+    statusFlag = `<span class="status-flag ready" title="Bluedart integration in v1.2"><span class="pulse"></span>BD pending</span>`;
+  } else if(r.courier === 'delhivery') {
+    statusFlag = `<span class="status-flag ready" title="Delhivery integration in v1.3"><span class="pulse"></span>DL pending</span>`;
+  } else if(r.courier === 'shiprocket') {
+    statusFlag = `<span class="status-flag ready" title="Shiprocket Quick deferred"><span class="pulse"></span>SR-Q deferred</span>`;
+  } else {
+    statusFlag = `<span class="status-flag ready"><span class="pulse"></span>Ready</span>`;
+  }
 
   const checked = State.selected.has(r.id) ? 'checked' : '';
 
@@ -1379,6 +1413,7 @@ function renderRow(r){
     <td class="mono" style="font-size:12px">${awbCell}</td>
     <td>${courierCell}</td>
     <td>${statusFlag}</td>
+    <td>${actionCell}</td>
   `;
 
   tr.querySelector('input[type="checkbox"]').addEventListener('change', (e) => {
@@ -1395,7 +1430,48 @@ function renderRow(r){
     });
   }
 
+  const fetchBtn = tr.querySelector('[data-fetch-label]');
+  if(fetchBtn){
+    fetchBtn.addEventListener('click', () => fetchLabelForRow(r.id));
+  }
+
   return tr;
+}
+
+// Test action — fetch ONE label for ONE order. v1.1.1 single-order proof of flow.
+async function fetchLabelForRow(rowId){
+  const inv = State.invoices.find(x => x.id === rowId);
+  if(!inv){ toast('Order not found', 'error'); return; }
+  if(!inv.awb || !inv.awbOk){ toast('Bad AWB — fix in InvoLens first', 'error'); return; }
+  if(inv.courier !== 'cargo'){ toast('Tag this order as Shiprocket Cargo first', 'error'); return; }
+  if(!State.settings.cargo.token){ toast('Set Cargo token in Settings → Courier APIs first', 'error', 5000); return; }
+
+  // Find the button to update its state
+  const btn = document.querySelector(`[data-fetch-label="${rowId}"]`);
+  const originalText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Fetching...'; }
+
+  try{
+    toast(`Fetching label for AWB ${inv.awb}...`, 'info', 2000);
+    const result = await cargoDownloadLabel(inv.awb, `cargo_${inv.invoiceNo.slice(-12)}`);
+    inv.lastFetchedAt = new Date().toISOString();
+    inv.cargoShipmentId = result.shipmentId;
+    inv.lastLabelSizeBytes = result.size;
+    persistLocal();
+    renderDispatch();
+    toast(`Label downloaded (${(result.size/1024).toFixed(1)} KB)`, 'success', 4000);
+    if(State.drive.connected){
+      writeDriveJSON('tracklens_orders.json', State.invoices).catch(()=>{});
+    }
+  } catch(err){
+    console.error('[TrackLens] fetch label failed:', err);
+    toast('Label fetch failed: ' + err.message, 'error', 6000);
+  } finally{
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
 }
 
 // Bulk-assign helper — called by both inline dropdown and bulk-bar buttons
@@ -1431,12 +1507,12 @@ function updateBulkBar(){
   }
 }
 function updateGenerateBtn(){
-  const srReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'shiprocket');
+  const cargoReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'cargo');
   const btn = $('#generateBatchBtn');
-  btn.disabled = srReady.length === 0;
-  btn.textContent = srReady.length > 0
-    ? `Generate Shiprocket batch (${srReady.length})`
-    : 'Generate Shiprocket batch';
+  btn.disabled = cargoReady.length === 0;
+  btn.textContent = cargoReady.length > 0
+    ? `Generate Cargo batch (${cargoReady.length})`
+    : 'Generate Cargo batch';
 }
 
 /* ------------------- Proxy / Courier API client ------------------- */
@@ -1456,30 +1532,30 @@ async function proxyHealthCheck(){
   return j;
 }
 
-// Calls a Shiprocket API path through our Worker proxy.
-// path: e.g. '/auth/login', '/courier/track/awb/123'
-// opts: { method, body, auth? (if false, don't send Bearer) }
-async function shiprocketFetch(path, opts = {}){
+/* ----- Shiprocket Cargo client ----- */
+// Cargo auth model: user generates Token + Refresh Token in their panel
+// (Settings → API Token → Generate API Token) and pastes them into TrackLens.
+// No login flow. Header format: `Authorization: token <40-char-hex>` (NOT Bearer JWT).
+
+async function cargoFetch(path, opts = {}){
   const base = getProxyBase();
-  const url = base + '/shiprocket' + path;
+  const url = base + '/cargo' + path;
+  const token = State.settings.cargo.token;
+  if(!token) throw new Error('Cargo token not set. Settings → Courier APIs → Shiprocket Cargo.');
   const headers = { 'Content-Type': 'application/json' };
-  if(opts.auth !== false){
-    const token = State.tokens.shiprocket?.token;
-    if(!token) throw new Error('Not authenticated to Shiprocket. Click Test Shiprocket first.');
-    headers['Authorization'] = 'Bearer ' + token;
-  }
+  // Cargo uses `token <hex>` not `Bearer <jwt>`
+  headers['Authorization'] = 'token ' + token;
   const resp = await fetch(url, {
     method: opts.method || 'GET',
     headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
-  // Shiprocket usually returns JSON; try to parse
   let data;
   const text = await resp.text();
   try{ data = JSON.parse(text); }catch{ data = { raw: text }; }
   if(!resp.ok){
-    const msg = data?.message || data?.error || `HTTP ${resp.status}`;
-    const err = new Error('Shiprocket: ' + msg);
+    const msg = data?.detail || data?.message || data?.error || `HTTP ${resp.status}`;
+    const err = new Error('Cargo: ' + msg);
     err.status = resp.status;
     err.body = data;
     throw err;
@@ -1487,67 +1563,117 @@ async function shiprocketFetch(path, opts = {}){
   return data;
 }
 
-// Authenticate to Shiprocket and cache the token.
-// Token lasts 10 days per their docs.
-async function shiprocketAuthenticate(){
-  const { email, password } = State.settings.shiprocket;
-  if(!email || !password) throw new Error('Shiprocket email and password not set in Settings.');
+// Find the internal cargo shipment_id from an AWB.
+// Endpoint: GET /api/shipment-list/?status=ready_to_ship&waybill_no={awb}&entity=shipment
+// Response: { results: [ { id, waybill_no, ... } ] } (paginated DRF list)
+async function cargoFindShipmentByAwb(awb){
+  // We don't filter by status — order may already be in transit/delivered when we look it up.
+  // Page size 5 is enough; AWB uniquely identifies a shipment.
+  const path = `/shipment-list/?page=1&page_size=5&waybill_no=${encodeURIComponent(awb)}&entity=shipment`;
+  const data = await cargoFetch(path);
+  // DRF paginated: { count, next, previous, results: [...] }
+  // OR direct array — handle both shapes
+  const list = Array.isArray(data) ? data : (data.results || []);
+  if(list.length === 0) throw new Error(`No Cargo shipment found for AWB ${awb}`);
+  const match = list.find(s => String(s.waybill_no) === String(awb)) || list[0];
+  if(!match.id) throw new Error('Cargo response missing shipment id');
+  return { shipmentId: match.id, raw: match };
+}
 
-  const data = await shiprocketFetch('/auth/login', {
-    method: 'POST',
-    body: { email, password },
-    auth: false
-  });
+// Fetch full shipment detail (which contains label_url).
+async function cargoGetShipmentDetail(shipmentId){
+  const path = `/shipment-detail/${encodeURIComponent(shipmentId)}/?entity=shipment`;
+  return cargoFetch(path);
+}
 
-  if(!data.token) throw new Error('Login response did not contain a token');
+// Resolve label URL for a given AWB. Two API calls.
+async function cargoGetLabelUrlForAwb(awb){
+  const { shipmentId, raw: listRow } = await cargoFindShipmentByAwb(awb);
+  const detail = await cargoGetShipmentDetail(shipmentId);
+  // The label URL is in `label_url`. Defensively scan a few common alternatives.
+  const candidates = [
+    detail.label_url,
+    detail.shipping_label_url,
+    detail.awb_label,
+    detail.label,
+    listRow?.label_url
+  ].filter(Boolean);
+  if(candidates.length === 0){
+    // Last-resort fallback: scan all string fields for one ending in .pdf
+    const all = JSON.stringify(detail);
+    const m = all.match(/"(https:[^"]+\.pdf[^"]*)"/);
+    if(m) candidates.push(m[1]);
+  }
+  if(candidates.length === 0) throw new Error('No label URL in shipment detail response');
+  return { labelUrl: candidates[0], shipmentId, detail };
+}
 
-  // Cache the token. Shiprocket says 240h (10 days). We use 9 days as safety margin.
-  const issuedAt = new Date();
-  const expiresAt = new Date(issuedAt.getTime() + 9 * 24 * 60 * 60 * 1000);
-
-  State.tokens.shiprocket = {
-    token: data.token,
-    issuedAt: issuedAt.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-    accountInfo: {
-      // Shiprocket returns various fields — capture the useful ones
-      id: data.id || null,
-      first_name: data.first_name || '',
-      last_name: data.last_name || '',
-      email: data.email || email,
-      company_id: data.company_id || null,
-      created_at: data.created_at || null
+// Download a label PDF via the Worker proxy's /fetch route, then trigger a browser
+// download with a sensible filename.
+async function cargoDownloadLabel(awb, filenamePrefix = 'label'){
+  const { labelUrl, shipmentId } = await cargoGetLabelUrlForAwb(awb);
+  const base = getProxyBase();
+  // Cargo's URL format is unusual: `https://host/path/file.pdf:SIGNATURE`
+  // The colon-signature is appended after the .pdf. We pass it through verbatim;
+  // the Worker's /fetch route just GETs whatever URL we give it.
+  const proxiedUrl = base + '/fetch?url=' + encodeURIComponent(labelUrl);
+  const resp = await fetch(proxiedUrl);
+  if(!resp.ok){
+    // If the colon-signed URL doesn't work, try stripping the signature
+    const stripped = labelUrl.replace(/:[A-Za-z0-9_-]+$/, '');
+    if(stripped !== labelUrl){
+      const retry = await fetch(base + '/fetch?url=' + encodeURIComponent(stripped));
+      if(retry.ok) return _streamDownload(retry, awb, filenamePrefix, shipmentId);
     }
+    throw new Error(`Label fetch failed: HTTP ${resp.status}`);
+  }
+  return _streamDownload(resp, awb, filenamePrefix, shipmentId);
+}
+
+async function _streamDownload(resp, awb, prefix, shipmentId){
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${prefix}_${awb}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { awb, shipmentId, size: blob.size };
+}
+
+/* ----- Auth verification (instead of login, since Cargo tokens are panel-generated) ----- */
+async function cargoVerifyToken(){
+  // Hit the lightest authenticated endpoint we have to confirm the token works.
+  // We use shipment-list with page_size=1 — minimal payload, doesn't require any specific shipment.
+  const data = await cargoFetch('/shipment-list/?page=1&page_size=1&entity=shipment');
+  const verifiedAt = new Date().toISOString();
+  // Some response shapes include account info; capture if present
+  const accountInfo = {
+    verifiedAt,
+    totalShipments: (data.count != null ? data.count : (Array.isArray(data) ? data.length : null))
   };
+  State.tokens.cargo = { verifiedAt, accountInfo };
   persistLocal();
   if(State.drive.connected){
     writeDriveJSON('tracklens_tokens.json', State.tokens).catch(e => console.warn('token Drive write failed', e));
   }
-  return State.tokens.shiprocket;
-}
-
-// Returns a valid token, refreshing if expired
-async function ensureShiprocketToken(){
-  const cached = State.tokens.shiprocket;
-  if(cached && cached.expiresAt && new Date(cached.expiresAt) > new Date()){
-    return cached.token;
-  }
-  const fresh = await shiprocketAuthenticate();
-  return fresh.token;
+  return State.tokens.cargo;
 }
 
 function clearAllTokens(){
-  State.tokens = { shiprocket: null };
+  State.tokens = { cargo: null, shiprocket: null };
   persistLocal();
   if(State.drive.connected){
     writeDriveJSON('tracklens_tokens.json', State.tokens).catch(()=>{});
   }
   toast('Cached tokens cleared', 'success');
-  renderShiprocketAuthResult(null);
+  renderCargoAuthResult(null);
 }
 
-function renderShiprocketAuthResult(result){
-  const el = $('#shiprocketAuthResult');
+function renderCargoAuthResult(result){
+  const el = $('#cargoAuthResult');
   if(!el) return;
   if(!result){
     el.style.display = 'none';
@@ -1560,40 +1686,37 @@ function renderShiprocketAuthResult(result){
     el.className = 'auth-result-success';
     const ai = t.accountInfo || {};
     el.innerHTML = `
-      <strong>✓ Connected to Shiprocket</strong><br>
+      <strong>✓ Cargo token verified</strong><br>
       <span style="font-family:'JetBrains Mono',monospace;font-size:11px">
-        Account: ${ai.first_name} ${ai.last_name} &lt;${ai.email}&gt;<br>
-        ID: ${ai.id ?? '—'} · Company: ${ai.company_id ?? '—'}<br>
-        Token issued: ${fmtDate(t.issuedAt)}<br>
-        Token expires: ${fmtDate(t.expiresAt)}
+        Verified at: ${fmtDate(ai.verifiedAt)}<br>
+        ${ai.totalShipments != null ? 'Total shipments accessible: ' + ai.totalShipments + '<br>' : ''}
+        Token persists locally + on Drive. No expiry tracked — rotate manually in Cargo panel when needed.
       </span>
     `;
   } else {
     el.className = 'auth-result-error';
-    el.innerHTML = `<strong>✗ Authentication failed</strong><br><span style="font-family:'JetBrains Mono',monospace;font-size:11px">${result.error}</span>`;
+    el.innerHTML = `<strong>✗ Cargo verification failed</strong><br><span style="font-family:'JetBrains Mono',monospace;font-size:11px">${result.error}</span>`;
   }
 }
 
-async function testShiprocketConnection(){
-  const btn = $('#testShiprocketBtn');
+async function testCargoConnection(){
+  const btn = $('#testCargoBtn');
   btn.disabled = true;
   btn.textContent = 'Testing...';
   try{
-    // First a proxy health check to give a clearer error if proxy is misconfigured
     await proxyHealthCheck();
-    // Save credentials first if user typed new ones in this session but didn't click Save
-    if($('#cred-sr-email').value) State.settings.shiprocket.email = $('#cred-sr-email').value;
-    if($('#cred-sr-password').value) State.settings.shiprocket.password = $('#cred-sr-password').value;
+    if($('#cred-cargo-token').value) State.settings.cargo.token = $('#cred-cargo-token').value;
+    if($('#cred-cargo-refresh').value) State.settings.cargo.refresh = $('#cred-cargo-refresh').value;
     persistLocal();
-    const t = await shiprocketAuthenticate();
-    renderShiprocketAuthResult({ ok: true, token: t });
-    toast('Shiprocket auth successful', 'success');
+    const t = await cargoVerifyToken();
+    renderCargoAuthResult({ ok: true, token: t });
+    toast('Cargo token verified', 'success');
   } catch(err){
-    renderShiprocketAuthResult({ ok: false, error: err.message });
-    toast('Shiprocket auth failed: ' + err.message, 'error', 5000);
+    renderCargoAuthResult({ ok: false, error: err.message });
+    toast('Cargo verification failed: ' + err.message, 'error', 5000);
   } finally{
     btn.disabled = false;
-    btn.textContent = 'Test Shiprocket';
+    btn.textContent = 'Test Cargo';
   }
 }
 
@@ -1604,7 +1727,6 @@ async function testProxyHealth(){
   result.textContent = 'Checking...';
   result.style.color = 'var(--ink-3)';
   try{
-    // Save URL from the input first
     const url = $('#cfg-proxy-url').value.trim().replace(/\/+$/, '');
     if(url) State.settings.proxy.url = url;
     persistLocal();
@@ -1728,6 +1850,8 @@ function bindSettings(){
 
 function saveSettingsSection(section){
   if(section === 'couriers'){
+    State.settings.cargo.token = $('#cred-cargo-token').value || State.settings.cargo.token;
+    State.settings.cargo.refresh = $('#cred-cargo-refresh').value || State.settings.cargo.refresh;
     State.settings.shiprocket.email = $('#cred-sr-email').value || State.settings.shiprocket.email;
     State.settings.shiprocket.password = $('#cred-sr-password').value || State.settings.shiprocket.password;
     State.settings.delhivery.token = $('#cred-dl-token').value || State.settings.delhivery.token;
@@ -1765,6 +1889,8 @@ function saveSettingsSection(section){
 function applySettingsToInputs(){
   // Mask credentials in the UI: show empty placeholders if value is set
   const map = [
+    ['cred-cargo-token', State.settings.cargo?.token, true],
+    ['cred-cargo-refresh', State.settings.cargo?.refresh, true],
     ['cred-sr-email', State.settings.shiprocket.email, false],
     ['cred-sr-password', State.settings.shiprocket.password, true],
     ['cred-dl-token', State.settings.delhivery.token, true],
@@ -1826,8 +1952,8 @@ function initDrive(){
       }).catch(()=>{});
       readDriveJSON('tracklens_tokens.json').then(t => {
         if(t) Object.assign(State.tokens, t);
-        if(State.tokens.shiprocket && State.tokens.shiprocket.token){
-          renderShiprocketAuthResult({ ok: true, token: State.tokens.shiprocket });
+        if(State.tokens.cargo){
+          renderCargoAuthResult({ ok: true, token: State.tokens.cargo });
         }
       }).catch(()=>{});
     }
@@ -1974,10 +2100,10 @@ function init(){
   $('#connectDriveBtn').addEventListener('click', ensureDrive);
 
   // Settings buttons
-  $('#testShiprocketBtn').addEventListener('click', testShiprocketConnection);
+  $('#testCargoBtn').addEventListener('click', testCargoConnection);
   $('#testProxyBtn').addEventListener('click', testProxyHealth);
   $('#clearTokensBtn').addEventListener('click', () => {
-    if(confirm('Clear cached Shiprocket auth token? You will need to re-authenticate next dispatch.')){
+    if(confirm('Clear cached Cargo verification? You will need to re-test before fetching labels.')){
       clearAllTokens();
     }
   });
@@ -1994,17 +2120,17 @@ function init(){
     });
   });
 
-  // Generate batch — placeholder for v1.1.1, just shows what would happen
+  // Generate batch — placeholder for v1.1.2
   $('#generateBatchBtn').addEventListener('click', () => {
-    const srReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'shiprocket');
-    toast(`v1.1.1 will fetch ${srReady.length} labels from Shiprocket. Not yet implemented.`, 'info', 4000);
+    const cargoReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'cargo');
+    toast(`v1.1.2 will fetch ${cargoReady.length} labels at once. For v1.1.1, click "Fetch label" on individual rows to test.`, 'info', 5000);
   });
 
   restoreLocal();
   applySettingsToInputs();
-  // If we already have a cached token, show its info
-  if(State.tokens.shiprocket && State.tokens.shiprocket.token){
-    renderShiprocketAuthResult({ ok: true, token: State.tokens.shiprocket });
+  // If we already have a cached cargo verification, show it
+  if(State.tokens.cargo){
+    renderCargoAuthResult({ ok: true, token: State.tokens.cargo });
   }
   renderDispatch();
   renderDriveStatus();
