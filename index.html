@@ -1579,38 +1579,54 @@ async function cargoFetch(path, opts = {}){
 
 // Find the internal cargo shipment_id from an AWB.
 // Endpoint: GET /api/shipment-list/?...&waybill_no={awb}&entity=shipment
-// Cargo's validator rejects calls without status + date range, so we mirror the
-// exact query shape their panel uses (captured via DevTools).
+//
+// IMPORTANT: We don't filter by status. InvoLens captures invoices AFTER dispatch,
+// so by the time TrackLens sees them they're already in transit / delivered. Filtering
+// by status=ready_to_ship would miss every order. Cargo's panel paginates across all
+// statuses by default, so this matches their behavior.
 async function cargoFindShipmentByAwb(awb){
   const today = new Date();
-  // Wide window — 6 months back. AWB is unique so this just satisfies the validator.
-  const sixMonthsAgo = new Date(today.getTime() - 180 * 24 * 60 * 60 * 1000);
+  // Wide window — 1 year back. AWB is unique, the date range just satisfies Cargo's validator.
+  const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
   const fmt = d => d.toISOString().slice(0, 10);
   const qs = new URLSearchParams({
     page: '1',
     page_size: '5',
-    status: 'ready_to_ship',
-    created_at_after: fmt(sixMonthsAgo),
+    created_at_after: fmt(yearAgo),
     created_at_before: fmt(today),
     waybill_no: awb,
     entity: 'shipment'
   });
-  let data;
-  try{
-    data = await cargoFetch('/shipment-list/?' + qs.toString());
-  } catch(err){
-    // If status=ready_to_ship excludes the order (already shipped/delivered),
-    // retry without status filter
-    if(err.status === 404 || /not\s*found/i.test(err.message || '')){
-      qs.delete('status');
-      data = await cargoFetch('/shipment-list/?' + qs.toString());
-    } else throw err;
+  // Try once across all statuses. If Cargo's validator rejects (some endpoints
+  // require a status), we'd hit an error here and surface it to the user.
+  const data = await cargoFetch('/shipment-list/?' + qs.toString());
+
+  // Cargo's response shape varies. Defensive extraction.
+  const list = extractShipmentList(data);
+
+  if(!list || list.length === 0){
+    console.warn('[TrackLens][Cargo] AWB lookup empty. Top-level keys:', Object.keys(data || {}), '| Raw response:', data);
+    throw new Error(`No Cargo shipment found for AWB ${awb} (searched all statuses, last 12 months)`);
   }
-  const list = Array.isArray(data) ? data : (data.results || []);
-  if(list.length === 0) throw new Error(`No Cargo shipment found for AWB ${awb}`);
   const match = list.find(s => String(s.waybill_no) === String(awb)) || list[0];
-  if(!match.id) throw new Error('Cargo response missing shipment id');
+  if(!match.id) throw new Error('Cargo response missing shipment id. Sample row keys: ' + Object.keys(match).join(', '));
   return { shipmentId: match.id, raw: match };
+}
+
+// Try every common JSON shape Cargo might return for a list endpoint.
+function extractShipmentList(data){
+  if(!data) return [];
+  if(Array.isArray(data)) return data;
+  if(Array.isArray(data.results)) return data.results;
+  if(Array.isArray(data.data)) return data.data;
+  if(data.data && Array.isArray(data.data.results)) return data.data.results;
+  if(Array.isArray(data.shipments)) return data.shipments;
+  if(Array.isArray(data.items)) return data.items;
+  // Last resort: any top-level array property
+  for(const k of Object.keys(data)){
+    if(Array.isArray(data[k])) return data[k];
+  }
+  return [];
 }
 
 // Fetch full shipment detail (which contains label_url).
@@ -1678,25 +1694,25 @@ async function _streamDownload(resp, awb, prefix, shipmentId){
 
 /* ----- Auth verification (instead of login, since Cargo tokens are panel-generated) ----- */
 async function cargoVerifyToken(){
-  // Hit shipment-list with the same query shape Cargo's own UI uses, so we don't
-  // accidentally trigger their server-side validators. Captured from a working
-  // panel request: page, page_size, status, created_at_after, created_at_before, entity.
+  // Hit shipment-list across all statuses — InvoLens orders are already dispatched
+  // by the time we see them, and we don't care about status for verification anyway.
   const today = new Date();
-  const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const fmt = d => d.toISOString().slice(0, 10);  // YYYY-MM-DD
+  const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
+  const fmt = d => d.toISOString().slice(0, 10);
   const qs = new URLSearchParams({
     page: '1',
     page_size: '1',
-    status: 'ready_to_ship',
-    created_at_after: fmt(monthAgo),
+    created_at_after: fmt(yearAgo),
     created_at_before: fmt(today),
     entity: 'shipment'
   });
   const data = await cargoFetch('/shipment-list/?' + qs.toString());
   const verifiedAt = new Date().toISOString();
+  const list = extractShipmentList(data);
   const accountInfo = {
     verifiedAt,
-    totalShipments: (data.count != null ? data.count : (Array.isArray(data) ? data.length : null))
+    totalShipments: (data && data.count != null) ? data.count : list.length,
+    sampleResponseKeys: Object.keys(data || {})
   };
   State.tokens.cargo = { verifiedAt, accountInfo };
   persistLocal();
