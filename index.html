@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>TrackLens — Honey Touch</title>
+<title>TrackLenses — Honey Touch</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -523,6 +523,42 @@
   .modal h2{font-family:'Fraunces',serif;font-size:20px;margin-bottom:10px;font-weight:600}
   .modal .desc{color:var(--ink-3);font-size:13px;margin-bottom:18px;line-height:1.6}
 
+  /* ===== Inline courier select (per-row override) ===== */
+  .courier-select{
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    padding: 3px 22px 3px 8px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 11px;
+    color: var(--ink-2);
+    cursor: pointer;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 4l3 3 3-3' stroke='%23888' fill='none' stroke-width='1.5'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+  }
+  .courier-select:hover{border-color: var(--ink-2)}
+  .courier-select:focus{outline:none; border-color: var(--ink)}
+  .courier-select.tagged{
+    background-color: var(--surface-2);
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* ===== Auth result panels ===== */
+  .auth-result-success{
+    background: var(--green-soft);
+    color: var(--green);
+    border: 1px solid #c4dec0;
+  }
+  .auth-result-error{
+    background: var(--red-soft);
+    color: var(--red);
+    border: 1px solid #e8c5c5;
+  }
+
   /* ===== Toast ===== */
   .toast-stack{
     position:fixed;
@@ -613,7 +649,7 @@
 <header class="topbar">
   <div class="brand">
     <div class="logo">Track<span class="accent">Lens</span></div>
-    <div class="ver">v1.0</div>
+    <div class="ver">v1.1.0</div>
   </div>
   <div class="auth-cluster">
     <div class="sync-pill" id="driveSyncPill">
@@ -650,9 +686,9 @@
 
     <div class="stat-grid">
       <div class="stat-card">
-        <div class="label">Pending Dispatch</div>
+        <div class="label">Shiprocket Ready</div>
         <div class="value" id="kpiPending">—</div>
-        <div class="sub">orders ready</div>
+        <div class="sub" id="kpiPendingSub">orders ready</div>
       </div>
       <div class="stat-card">
         <div class="label">Untagged Courier</div>
@@ -678,7 +714,7 @@
       </div>
       <div class="section-actions">
         <button class="btn ghost sm" id="reimportBtn">Re-import InvoLens</button>
-        <button class="btn accent" id="generateBatchBtn" disabled>Generate Label Batch</button>
+        <button class="btn accent" id="generateBatchBtn" disabled>Generate Shiprocket batch</button>
       </div>
     </div>
 
@@ -702,9 +738,12 @@
       <div id="bulkBar" class="bulk-bar" style="display:none">
         <div class="selected-count"><span id="selectedCountText">0 selected</span></div>
         <div class="actions">
-          <button class="btn sm ghost" id="bulkAssignBtn">Assign courier</button>
-          <button class="btn sm accent" id="bulkGenerateBtn">Generate labels</button>
-          <button class="btn sm ghost" id="bulkClearBtn">Clear</button>
+          <span style="font-size:11px;opacity:0.7;margin-right:6px;align-self:center">Assign to →</span>
+          <button class="btn sm" data-bulk-assign="shiprocket">Shiprocket</button>
+          <button class="btn sm" data-bulk-assign="bluedart">Bluedart</button>
+          <button class="btn sm" data-bulk-assign="delhivery">Delhivery</button>
+          <button class="btn sm ghost" data-bulk-assign="">Untag</button>
+          <button class="btn sm ghost" id="bulkClearBtn">✕</button>
         </div>
       </div>
 
@@ -799,9 +838,12 @@
           </div>
 
           <div class="save-row">
-            <button class="btn ghost sm" id="testCouriersBtn">Test connections</button>
+            <button class="btn ghost sm" id="testShiprocketBtn">Test Shiprocket</button>
+            <button class="btn ghost sm" id="clearTokensBtn" title="Clear cached auth tokens">Clear cached tokens</button>
             <button class="btn sm" data-save-section="couriers">Save credentials</button>
           </div>
+
+          <div id="shiprocketAuthResult" style="display:none;margin-top:14px;padding:12px;border-radius:6px;font-size:12px;line-height:1.6"></div>
         </div>
 
         <div class="settings-section" data-section="messaging" style="display:none">
@@ -889,6 +931,15 @@
             <input type="text" class="mono" id="cfg-oauth-client" value="801481705797-4lr6orueunsbdk5vhhe578bga4ai6lhq.apps.googleusercontent.com" readonly />
           </div>
 
+          <div class="field-group">
+            <label>TrackLens Proxy URL <span style="color:var(--ink-3);text-transform:none;letter-spacing:0">(Cloudflare Worker — handles courier API CORS)</span></label>
+            <input type="url" class="mono" id="cfg-proxy-url" placeholder="https://tracklens-proxy.your-account.workers.dev" data-cred="proxy.url" />
+            <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
+              Test: <button class="btn ghost sm" id="testProxyBtn" type="button">Health check</button>
+              <span id="proxyHealthResult" class="mono" style="margin-left:8px;font-size:11px"></span>
+            </div>
+          </div>
+
           <div id="driveStatusBlock" style="background:var(--surface-2);padding:14px;border-radius:6px;font-size:12px;color:var(--ink-2);font-family:'JetBrains Mono',monospace;line-height:1.7"></div>
 
           <div class="save-row">
@@ -901,20 +952,23 @@
           <h3>About TrackLens</h3>
           <p class="desc">Honey Touch shipment dispatch & SLA tracker. Reads orders from InvoLens, fetches shipping labels from courier APIs, monitors status, and triggers alerts.</p>
           <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);line-height:2">
-            <div>Version: <strong>1.0.0</strong> (foundation release)</div>
-            <div>Canonical: <strong>tracklens_v1.html</strong></div>
+            <div>Version: <strong>1.1.0</strong> (manual courier assignment + Shiprocket auth)</div>
+            <div>Canonical: <strong>tracklens_v1.1.0.html</strong></div>
             <div>Storage key: <strong>tracklens_v1</strong></div>
             <div>Build date: 2026-04-28</div>
           </div>
           <div style="margin-top:18px;padding:14px;background:var(--surface-2);border-radius:6px;font-size:12px;line-height:1.8">
             <strong>Roadmap:</strong><br>
-            v1.0 — Auth + InvoLens import + dispatch queue (you are here)<br>
-            v1.1 — Shiprocket label fetch + sticker PDF<br>
-            v1.2 — Delhivery + Bluedart label fetch, dual PDF (sticker + A4 handoff)<br>
-            v1.3 — Live tracking grid<br>
-            v1.4 — Alerts engine (Interakt)<br>
-            v1.5 — SLA performance dashboard<br>
-            v1.6 — Direct InvoLens → TrackLens auto-sync
+            v1.0 — Auth + InvoLens import + dispatch queue<br>
+            <strong>v1.1.0 — Manual courier assignment + Shiprocket auth (you are here)</strong><br>
+            v1.1.1 — Single-order Shiprocket label test<br>
+            v1.1.2 — Bulk Shiprocket label + invoice + manifest PDFs<br>
+            v1.2 — Bluedart direct integration (40% of volume)<br>
+            v1.3 — Delhivery direct integration (10% of volume)<br>
+            v1.4 — Live tracking grid<br>
+            v1.5 — Alerts engine (Interakt)<br>
+            v1.6 — SLA performance dashboard<br>
+            v1.7 — Direct InvoLens → TrackLens auto-sync
           </div>
         </div>
 
@@ -972,7 +1026,15 @@ const State = {
     interakt: { apiKey: '' },
     alerts: { opsPhones: '', opsEmail: '' },
     templates: { pickedUp: '', ofd: '' },
-    thresholds: { stale: 48, atrisk: 24, breach: 12 }
+    thresholds: { stale: 48, atrisk: 24, breach: 12 },
+    proxy: { url: '' }
+  },
+  // Auth token cache — token lasts 10 days per Shiprocket API docs.
+  // We cache it in Drive (not localStorage) so it survives device switches and
+  // doesn't get wiped by browser cache clears. Format:
+  //   { shiprocket: { token: 'eyJ...', issuedAt: '2026-...', expiresAt: '2026-...', accountInfo: {...} } }
+  tokens: {
+    shiprocket: null
   },
   drive: {
     accessToken: null,
@@ -1058,7 +1120,8 @@ function persistLocal(){
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       settings: State.settings,
       invoices: State.invoices,
-      meta: State.meta
+      meta: State.meta,
+      tokens: State.tokens
     }));
   }catch(e){
     // file:// or quota — fail silent, Drive is source of truth
@@ -1072,6 +1135,7 @@ function restoreLocal(){
     if(parsed.settings) Object.assign(State.settings, parsed.settings);
     if(parsed.invoices) State.invoices = parsed.invoices;
     if(parsed.meta) Object.assign(State.meta, parsed.meta);
+    if(parsed.tokens) Object.assign(State.tokens, parsed.tokens);
   }catch(e){}
 }
 
@@ -1205,9 +1269,14 @@ function renderDispatch(){
   const untagged = State.invoices.filter(r => !r.courier).length;
   const missingAwb = State.invoices.filter(r => !r.awb).length;
   const corruptedAwb = State.invoices.filter(r => r.awb && !r.awbOk).length;
+  const shiprocketReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'shiprocket').length;
+  const bluedartTagged = State.invoices.filter(r => r.courier === 'bluedart').length;
+  const delhiveryTagged = State.invoices.filter(r => r.courier === 'delhivery').length;
+  // "Ready" overall = anything tagged + good AWB
   const ready = State.invoices.filter(r => r.awb && r.awbOk && r.courier).length;
 
-  $('#kpiPending').textContent = total;
+  $('#kpiPending').textContent = shiprocketReady;
+  $('#kpiPendingSub').textContent = `BD: ${bluedartTagged}  ·  DL: ${delhiveryTagged}`;
   $('#kpiUntagged').textContent = untagged;
   $('#kpiMissingAwb').textContent = missingAwb + corruptedAwb;
 
@@ -1265,14 +1334,24 @@ function renderRow(r){
 
   const platformLabel = { amazon:'Amazon', flipkart:'Flipkart', d2c:'D2C', unknown:'?' }[r.platform];
 
-  const courierCell = r.courier
-    ? `<span class="courier-tag ${r.courier}"><span class="badge"></span>${r.courier.charAt(0).toUpperCase()+r.courier.slice(1)}${r.courierInferred ? ' <span style="opacity:0.5">~</span>' : ''}</span>`
-    : `<span class="courier-tag untagged"><span class="badge"></span>Untagged</span>`;
+  // Courier cell is now an editable dropdown (manual assignment per row)
+  const courierOptions = [
+    { val: '', label: '— Untagged —' },
+    { val: 'shiprocket', label: 'Shiprocket' },
+    { val: 'bluedart', label: 'Bluedart' },
+    { val: 'delhivery', label: 'Delhivery' }
+  ];
+  const courierCell = `<select class="courier-select ${r.courier ? 'tagged' : ''}" data-row-courier="${r.id}">
+    ${courierOptions.map(o => `<option value="${o.val}" ${r.courier === o.val ? 'selected' : ''}>${o.label}</option>`).join('')}
+  </select>`;
 
   let statusFlag;
   if(!r.awb) statusFlag = `<span class="status-flag breached"><span class="pulse"></span>No AWB</span>`;
   else if(!r.awbOk) statusFlag = `<span class="status-flag breached"><span class="pulse"></span>Bad AWB</span>`;
   else if(!r.courier) statusFlag = `<span class="status-flag atrisk"><span class="pulse"></span>Tag courier</span>`;
+  else if(r.courier === 'shiprocket') statusFlag = `<span class="status-flag intransit"><span class="pulse"></span>SR ready</span>`;
+  else if(r.courier === 'bluedart') statusFlag = `<span class="status-flag ready" title="Bluedart integration in v1.2"><span class="pulse"></span>BD pending</span>`;
+  else if(r.courier === 'delhivery') statusFlag = `<span class="status-flag ready" title="Delhivery integration in v1.3"><span class="pulse"></span>DL pending</span>`;
   else statusFlag = `<span class="status-flag ready"><span class="pulse"></span>Ready</span>`;
 
   const checked = State.selected.has(r.id) ? 'checked' : '';
@@ -1309,7 +1388,37 @@ function renderRow(r){
     updateGenerateBtn();
   });
 
+  const sel = tr.querySelector('select.courier-select');
+  if(sel){
+    sel.addEventListener('change', (e) => {
+      assignCourierToRows([r.id], e.target.value || null);
+    });
+  }
+
   return tr;
+}
+
+// Bulk-assign helper — called by both inline dropdown and bulk-bar buttons
+function assignCourierToRows(rowIds, courierKey){
+  let changed = 0;
+  for(const id of rowIds){
+    const inv = State.invoices.find(x => x.id === id);
+    if(inv){
+      inv.courier = courierKey || null;
+      inv.courierInferred = false;        // user-assigned, not inferred
+      inv.courierAssignedAt = new Date().toISOString();
+      changed++;
+    }
+  }
+  if(changed === 0) return;
+  persistLocal();
+  renderDispatch();
+  toast(`${changed} order${changed === 1 ? '' : 's'} ${courierKey ? 'assigned to ' + courierKey : 'untagged'}`, 'success', 2000);
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_orders.json', State.invoices)
+      .then(()=>{ State.drive.lastSync = new Date().toISOString(); renderDriveStatus(); })
+      .catch(e=>console.warn('Drive write failed', e));
+  }
 }
 
 function updateBulkBar(){
@@ -1322,8 +1431,192 @@ function updateBulkBar(){
   }
 }
 function updateGenerateBtn(){
-  const ready = State.invoices.filter(r => r.awb && r.awbOk && r.courier);
-  $('#generateBatchBtn').disabled = ready.length === 0;
+  const srReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'shiprocket');
+  const btn = $('#generateBatchBtn');
+  btn.disabled = srReady.length === 0;
+  btn.textContent = srReady.length > 0
+    ? `Generate Shiprocket batch (${srReady.length})`
+    : 'Generate Shiprocket batch';
+}
+
+/* ------------------- Proxy / Courier API client ------------------- */
+
+function getProxyBase(){
+  const url = State.settings?.proxy?.url;
+  if(!url) throw new Error('Proxy URL not configured. Settings → Drive Sync → TrackLens Proxy URL.');
+  return url.replace(/\/+$/, '');
+}
+
+async function proxyHealthCheck(){
+  const base = getProxyBase();
+  const resp = await fetch(base + '/health', { method: 'GET' });
+  if(!resp.ok) throw new Error('Proxy returned HTTP ' + resp.status);
+  const j = await resp.json();
+  if(!j.ok) throw new Error('Proxy health check returned not-ok');
+  return j;
+}
+
+// Calls a Shiprocket API path through our Worker proxy.
+// path: e.g. '/auth/login', '/courier/track/awb/123'
+// opts: { method, body, auth? (if false, don't send Bearer) }
+async function shiprocketFetch(path, opts = {}){
+  const base = getProxyBase();
+  const url = base + '/shiprocket' + path;
+  const headers = { 'Content-Type': 'application/json' };
+  if(opts.auth !== false){
+    const token = State.tokens.shiprocket?.token;
+    if(!token) throw new Error('Not authenticated to Shiprocket. Click Test Shiprocket first.');
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  const resp = await fetch(url, {
+    method: opts.method || 'GET',
+    headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  // Shiprocket usually returns JSON; try to parse
+  let data;
+  const text = await resp.text();
+  try{ data = JSON.parse(text); }catch{ data = { raw: text }; }
+  if(!resp.ok){
+    const msg = data?.message || data?.error || `HTTP ${resp.status}`;
+    const err = new Error('Shiprocket: ' + msg);
+    err.status = resp.status;
+    err.body = data;
+    throw err;
+  }
+  return data;
+}
+
+// Authenticate to Shiprocket and cache the token.
+// Token lasts 10 days per their docs.
+async function shiprocketAuthenticate(){
+  const { email, password } = State.settings.shiprocket;
+  if(!email || !password) throw new Error('Shiprocket email and password not set in Settings.');
+
+  const data = await shiprocketFetch('/auth/login', {
+    method: 'POST',
+    body: { email, password },
+    auth: false
+  });
+
+  if(!data.token) throw new Error('Login response did not contain a token');
+
+  // Cache the token. Shiprocket says 240h (10 days). We use 9 days as safety margin.
+  const issuedAt = new Date();
+  const expiresAt = new Date(issuedAt.getTime() + 9 * 24 * 60 * 60 * 1000);
+
+  State.tokens.shiprocket = {
+    token: data.token,
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    accountInfo: {
+      // Shiprocket returns various fields — capture the useful ones
+      id: data.id || null,
+      first_name: data.first_name || '',
+      last_name: data.last_name || '',
+      email: data.email || email,
+      company_id: data.company_id || null,
+      created_at: data.created_at || null
+    }
+  };
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_tokens.json', State.tokens).catch(e => console.warn('token Drive write failed', e));
+  }
+  return State.tokens.shiprocket;
+}
+
+// Returns a valid token, refreshing if expired
+async function ensureShiprocketToken(){
+  const cached = State.tokens.shiprocket;
+  if(cached && cached.expiresAt && new Date(cached.expiresAt) > new Date()){
+    return cached.token;
+  }
+  const fresh = await shiprocketAuthenticate();
+  return fresh.token;
+}
+
+function clearAllTokens(){
+  State.tokens = { shiprocket: null };
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_tokens.json', State.tokens).catch(()=>{});
+  }
+  toast('Cached tokens cleared', 'success');
+  renderShiprocketAuthResult(null);
+}
+
+function renderShiprocketAuthResult(result){
+  const el = $('#shiprocketAuthResult');
+  if(!el) return;
+  if(!result){
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = 'block';
+  if(result.ok){
+    const t = result.token;
+    el.className = 'auth-result-success';
+    const ai = t.accountInfo || {};
+    el.innerHTML = `
+      <strong>✓ Connected to Shiprocket</strong><br>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px">
+        Account: ${ai.first_name} ${ai.last_name} &lt;${ai.email}&gt;<br>
+        ID: ${ai.id ?? '—'} · Company: ${ai.company_id ?? '—'}<br>
+        Token issued: ${fmtDate(t.issuedAt)}<br>
+        Token expires: ${fmtDate(t.expiresAt)}
+      </span>
+    `;
+  } else {
+    el.className = 'auth-result-error';
+    el.innerHTML = `<strong>✗ Authentication failed</strong><br><span style="font-family:'JetBrains Mono',monospace;font-size:11px">${result.error}</span>`;
+  }
+}
+
+async function testShiprocketConnection(){
+  const btn = $('#testShiprocketBtn');
+  btn.disabled = true;
+  btn.textContent = 'Testing...';
+  try{
+    // First a proxy health check to give a clearer error if proxy is misconfigured
+    await proxyHealthCheck();
+    // Save credentials first if user typed new ones in this session but didn't click Save
+    if($('#cred-sr-email').value) State.settings.shiprocket.email = $('#cred-sr-email').value;
+    if($('#cred-sr-password').value) State.settings.shiprocket.password = $('#cred-sr-password').value;
+    persistLocal();
+    const t = await shiprocketAuthenticate();
+    renderShiprocketAuthResult({ ok: true, token: t });
+    toast('Shiprocket auth successful', 'success');
+  } catch(err){
+    renderShiprocketAuthResult({ ok: false, error: err.message });
+    toast('Shiprocket auth failed: ' + err.message, 'error', 5000);
+  } finally{
+    btn.disabled = false;
+    btn.textContent = 'Test Shiprocket';
+  }
+}
+
+async function testProxyHealth(){
+  const result = $('#proxyHealthResult');
+  const btn = $('#testProxyBtn');
+  btn.disabled = true;
+  result.textContent = 'Checking...';
+  result.style.color = 'var(--ink-3)';
+  try{
+    // Save URL from the input first
+    const url = $('#cfg-proxy-url').value.trim().replace(/\/+$/, '');
+    if(url) State.settings.proxy.url = url;
+    persistLocal();
+    const j = await proxyHealthCheck();
+    result.textContent = `✓ ${j.name} v${j.version} — ${j.couriers.length} couriers ready`;
+    result.style.color = 'var(--green)';
+  } catch(err){
+    result.textContent = `✗ ${err.message}`;
+    result.style.color = 'var(--red)';
+  } finally{
+    btn.disabled = false;
+  }
 }
 
 /* ------------------- Tabs ------------------- */
@@ -1453,6 +1746,11 @@ function saveSettingsSection(section){
     State.settings.thresholds.atrisk = parseInt($('#thr-atrisk-input').value, 10);
     State.settings.thresholds.breach = parseInt($('#thr-breach-input').value, 10);
   }
+  // Proxy URL is on the Drive Sync section but typed any time — capture both ways
+  const proxyInput = $('#cfg-proxy-url');
+  if(proxyInput && proxyInput.value){
+    State.settings.proxy.url = proxyInput.value.trim().replace(/\/+$/, ''); // strip trailing slash
+  }
   persistLocal();
   applySettingsToInputs();
   if(State.drive.connected){
@@ -1493,6 +1791,12 @@ function applySettingsToInputs(){
   $('#thr-stale').textContent = State.settings.thresholds.stale;
   $('#thr-atrisk').textContent = State.settings.thresholds.atrisk;
   $('#thr-breach').textContent = State.settings.thresholds.breach;
+
+  // Proxy URL — shown as plain value, not masked (it's not sensitive)
+  const proxyInput = $('#cfg-proxy-url');
+  if(proxyInput && State.settings.proxy && State.settings.proxy.url){
+    proxyInput.value = State.settings.proxy.url;
+  }
 }
 
 /* ------------------- Google Drive (drive.file scope) ------------------- */
@@ -1519,6 +1823,12 @@ function initDrive(){
       readDriveJSON('tracklens_settings.json').then(s => {
         if(s) Object.assign(State.settings, s);
         applySettingsToInputs();
+      }).catch(()=>{});
+      readDriveJSON('tracklens_tokens.json').then(t => {
+        if(t) Object.assign(State.tokens, t);
+        if(State.tokens.shiprocket && State.tokens.shiprocket.token){
+          renderShiprocketAuthResult({ ok: true, token: State.tokens.shiprocket });
+        }
       }).catch(()=>{});
     }
   });
@@ -1618,7 +1928,7 @@ function renderDriveStatus(){
       <div>Status: <strong>${State.drive.connected ? 'Connected' : 'Disconnected'}</strong></div>
       <div>Folder: <strong>${DRIVE_FOLDER_ID}</strong></div>
       <div>Last sync: <strong>${State.drive.lastSync ? fmtDate(State.drive.lastSync) : 'never'}</strong></div>
-      <div>Files in scope: <strong>tracklens_orders.json, tracklens_settings.json, tracklens_status.json, tracklens_alerts.json</strong></div>
+      <div>Files in scope: <strong>tracklens_orders.json, tracklens_settings.json, tracklens_tokens.json, tracklens_status.json, tracklens_alerts.json</strong></div>
     `;
   }
 }
@@ -1631,21 +1941,40 @@ function init(){
   bindSettings();
 
   $('#connectDriveBtn').addEventListener('click', ensureDrive);
-  $('#testCouriersBtn').addEventListener('click', () => {
-    toast('Connection test — coming in v1.1 with first courier integration', 'info');
+
+  // Settings buttons
+  $('#testShiprocketBtn').addEventListener('click', testShiprocketConnection);
+  $('#testProxyBtn').addEventListener('click', testProxyHealth);
+  $('#clearTokensBtn').addEventListener('click', () => {
+    if(confirm('Clear cached Shiprocket auth token? You will need to re-authenticate next dispatch.')){
+      clearAllTokens();
+    }
   });
-  $('#bulkAssignBtn').addEventListener('click', () => {
-    toast('Bulk courier assignment — coming in v1.1', 'info');
+
+  // Bulk assign buttons (data-bulk-assign attribute)
+  document.querySelectorAll('[data-bulk-assign]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const courier = btn.dataset.bulkAssign;  // '' for untag, or 'shiprocket'/'bluedart'/'delhivery'
+      const ids = Array.from(State.selected);
+      if(ids.length === 0){ toast('No rows selected', 'error', 2000); return; }
+      assignCourierToRows(ids, courier || null);
+      State.selected.clear();
+      renderDispatch();
+    });
   });
-  $('#bulkGenerateBtn').addEventListener('click', () => {
-    toast('Label batch generation — coming in v1.1', 'info');
-  });
+
+  // Generate batch — placeholder for v1.1.1, just shows what would happen
   $('#generateBatchBtn').addEventListener('click', () => {
-    toast('Label batch generation — coming in v1.1', 'info');
+    const srReady = State.invoices.filter(r => r.awb && r.awbOk && r.courier === 'shiprocket');
+    toast(`v1.1.1 will fetch ${srReady.length} labels from Shiprocket. Not yet implemented.`, 'info', 4000);
   });
 
   restoreLocal();
   applySettingsToInputs();
+  // If we already have a cached token, show its info
+  if(State.tokens.shiprocket && State.tokens.shiprocket.token){
+    renderShiprocketAuthResult({ ok: true, token: State.tokens.shiprocket });
+  }
   renderDispatch();
   renderDriveStatus();
   initDrive();
