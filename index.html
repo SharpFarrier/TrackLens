@@ -951,15 +951,23 @@
         <span class="count" id="queueCount">— orders</span>
       </div>
       <div class="section-actions">
-        <button class="btn ghost sm" id="reimportBtn">Re-import InvoLens</button>
+        <button class="btn ghost sm" id="refreshFromDriveBtn" title="Fetch latest involens_invoices.json from Drive">
+          <span style="display:inline-block;transform:translateY(1px);margin-right:4px">↻</span>Refresh from Drive
+        </button>
+        <button class="btn ghost sm" id="reimportBtn">Re-import (manual)</button>
         <button class="btn accent" id="generateBatchBtn" disabled>Generate Cargo batch</button>
       </div>
+    </div>
+
+    <div id="driveSourceIndicator" style="font-size:11.5px;color:var(--ink-3);margin-bottom:10px;display:none">
+      <span class="mono">involens_invoices.json</span> · <span id="driveSourceModified">—</span> · fetched <span id="driveSourceFetched">—</span>
     </div>
 
     <div id="dispatchEmpty" class="empty-state">
       <div class="icon">⎙</div>
       <h3>No orders loaded yet</h3>
-      <p>Import the latest <span class="mono">involens_invoices.json</span> export from InvoLens to begin building today's dispatch batch.</p>
+      <p>TrackLens auto-fetches <span class="mono">involens_invoices.json</span> from your Drive on app load. Configure the InvoLens Data folder ID in <strong>Settings → Drive Sync</strong>.</p>
+      <p style="margin-top:8px">Or drop the JSON file manually:</p>
       <button class="btn accent" id="importBtnEmpty">Import InvoLens JSON</button>
     </div>
 
@@ -1320,6 +1328,16 @@
           </div>
 
           <div class="field-group">
+            <label>InvoLens Data folder ID <span style="color:var(--ink-3);text-transform:none;letter-spacing:0">(Drive folder containing <span class="mono">involens_invoices.json</span>)</span></label>
+            <input type="text" class="mono" id="cfg-involens-data-folder" placeholder="1v5oo7acB9o9JcbMSGkMrzXXsYMbh_XjP" data-cred="involens.dataFolderId" />
+            <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
+              TrackLens will look up <span class="mono">involens_invoices.json</span> in this folder and auto-fetch on app load.
+              <button class="btn ghost sm" id="testInvolensDataBtn" type="button" style="margin-left:6px">Test</button>
+              <span id="involensDataResult" class="mono" style="margin-left:6px;font-size:11px"></span>
+            </div>
+          </div>
+
+          <div class="field-group">
             <label>InvoLens Invoices folder ID <span style="color:var(--ink-3);text-transform:none;letter-spacing:0">(Drive folder where InvoLens stores per-order invoice PDFs)</span></label>
             <input type="text" class="mono" id="cfg-involens-folder" placeholder="1AuLczHZefz3HW86gPWHNowglojp2cyqc" data-cred="involens.invoicesFolderId" />
             <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
@@ -1419,7 +1437,12 @@ const State = {
     templates: { pickedUp: '', ofd: '' },
     thresholds: { stale: 48, atrisk: 24, breach: 12 },
     proxy: { url: '' },
-    involens: { invoicesFolderId: '' }       // Drive folder where InvoLens stores invoice PDFs
+    involens: {
+      dataFolderId: '',          // Drive folder containing involens_invoices.json (e.g. "InvoLens Data")
+      invoicesFolderId: '',      // Drive folder containing per-order invoice PDFs (e.g. "Invoices" inside InvoLens Data)
+      lastFetchedAt: null,       // ISO string — when TrackLens last fetched the JSON
+      lastModifiedTime: null     // ISO string — Drive's modifiedTime on the JSON file at last fetch
+    }
   },
   // Auth state — for Cargo, tokens come directly from the user (panel-generated)
   // and we just verify by hitting an authenticated endpoint. No login flow needed.
@@ -1567,7 +1590,8 @@ function restoreLocal(){
     if(parsed.batchHistory) State.batch.history = parsed.batchHistory;
   }catch(e){}
   // Defensive defaults — fields added in later versions may not be in older saves
-  if(!State.settings.involens) State.settings.involens = { invoicesFolderId: '' };
+  if(!State.settings.involens) State.settings.involens = { dataFolderId: '', invoicesFolderId: '', lastFetchedAt: null, lastModifiedTime: null };
+  if(typeof State.settings.involens.dataFolderId !== 'string') State.settings.involens.dataFolderId = '';
   if(!State.settings.proxy) State.settings.proxy = { url: '' };
 }
 
@@ -1639,7 +1663,7 @@ function normalizeInvoLensRecord(r){
   };
 }
 
-function importInvoLensJSON(text, filename){
+function importInvoLensJSON(text, filename, opts = {}){
   let data;
   try{
     data = JSON.parse(text);
@@ -1658,13 +1682,18 @@ function importInvoLensJSON(text, filename){
   persistLocal();
   renderDispatch();
   closeImportModal();
+  renderDriveSourceIndicator();
 
   // Integrity diagnostics
   const corrupted = State.invoices.filter(r => r.awb && !r.awbOk);
   const missing = State.invoices.filter(r => !r.awb);
   const ok = State.invoices.length - corrupted.length - missing.length;
 
-  toast(`Imported ${State.invoices.length} invoices — ${ok} ready, ${corrupted.length} corrupted AWBs, ${missing.length} missing AWBs`, corrupted.length || missing.length ? 'error' : 'success', 6000);
+  if(!opts.silent){
+    toast(`Imported ${State.invoices.length} invoices — ${ok} ready, ${corrupted.length} corrupted AWBs, ${missing.length} missing AWBs`, corrupted.length || missing.length ? 'error' : 'success', 6000);
+  } else {
+    toast(`Refreshed from Drive — ${State.invoices.length} invoices loaded`, 'success', 3000);
+  }
 
   if(corrupted.length){
     showAwbCorruptionBanner(corrupted);
@@ -1675,6 +1704,88 @@ function importInvoLensJSON(text, filename){
       .then(()=>{ State.drive.lastSync = new Date().toISOString(); renderDriveStatus(); })
       .catch(e=>console.warn('Drive write failed', e));
   }
+}
+
+/* Look up involens_invoices.json in the configured InvoLens Data folder.
+ * Returns { fileId, modifiedTime, name } or null if not found / not configured.
+ */
+async function findInvolensJsonFile(){
+  const folderId = State.settings.involens?.dataFolderId;
+  if(!folderId) return null;
+  if(!State.drive.accessToken) throw new Error('Drive not connected');
+  const params = new URLSearchParams({
+    q: `'${folderId}' in parents and trashed=false and name='involens_invoices.json'`,
+    fields: 'files(id,name,modifiedTime,size)',
+    pageSize: '1'
+  });
+  const url = 'https://www.googleapis.com/drive/v3/files?' + params.toString();
+  const resp = await fetch(url, { headers: { 'Authorization': 'Bearer ' + State.drive.accessToken }});
+  if(!resp.ok) throw new Error(`Drive list HTTP ${resp.status}`);
+  const data = await resp.json();
+  const file = (data.files || [])[0];
+  return file || null;
+}
+
+/* Fetch InvoLens JSON from Drive and import it. Triggered:
+ *  - on app load (auto)
+ *  - manually via "Refresh from Drive" button
+ * Returns true on success, false on no-config / no-change / failure.
+ */
+async function fetchInvolensFromDrive(opts = {}){
+  const { silent = false, force = false } = opts;
+  try{
+    if(!State.drive.connected){
+      if(!silent) toast('Drive not connected', 'error');
+      return false;
+    }
+    if(!State.settings.involens?.dataFolderId){
+      if(!silent) toast('Set InvoLens Data folder ID in Settings → Drive Sync first', 'error', 4000);
+      return false;
+    }
+    const file = await findInvolensJsonFile();
+    if(!file){
+      if(!silent) toast('involens_invoices.json not found in configured folder', 'error', 4000);
+      return false;
+    }
+    // Skip refetch if Drive's modifiedTime hasn't changed AND we already have data
+    if(!force
+        && State.invoices.length > 0
+        && State.settings.involens.lastModifiedTime === file.modifiedTime){
+      if(!silent) toast('Already up-to-date with Drive', 'info', 2500);
+      State.settings.involens.lastFetchedAt = new Date().toISOString();
+      persistLocal();
+      renderDriveSourceIndicator();
+      return false;
+    }
+    // Download file content
+    const dlUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`;
+    const dlResp = await fetch(dlUrl, { headers: { 'Authorization': 'Bearer ' + State.drive.accessToken }});
+    if(!dlResp.ok) throw new Error(`Download HTTP ${dlResp.status}`);
+    const text = await dlResp.text();
+    // Update fetch metadata BEFORE import (so renderDriveSourceIndicator inside import shows correct values)
+    State.settings.involens.lastFetchedAt = new Date().toISOString();
+    State.settings.involens.lastModifiedTime = file.modifiedTime;
+    importInvoLensJSON(text, file.name, { silent });
+    return true;
+  } catch(err){
+    console.error('[TrackLens] Drive auto-fetch failed', err);
+    if(!silent) toast(`Refresh failed: ${err.message}`, 'error', 4000);
+    return false;
+  }
+}
+
+function renderDriveSourceIndicator(){
+  const indicator = $('#driveSourceIndicator');
+  if(!indicator) return;
+  const lm = State.settings.involens?.lastModifiedTime;
+  const lf = State.settings.involens?.lastFetchedAt;
+  if(!lm && !lf){
+    indicator.style.display = 'none';
+    return;
+  }
+  indicator.style.display = '';
+  $('#driveSourceModified').textContent = lm ? `updated ${fmtRelative(lm)}` : 'unknown';
+  $('#driveSourceFetched').textContent = lf ? fmtRelative(lf) : 'never';
 }
 
 function showAwbCorruptionBanner(corruptedRows){
@@ -2328,6 +2439,45 @@ async function testProxyHealth(){
     persistLocal();
     const j = await proxyHealthCheck();
     result.textContent = `✓ ${j.name} v${j.version} — ${j.couriers.length} couriers ready`;
+    result.style.color = 'var(--green)';
+  } catch(err){
+    result.textContent = `✗ ${err.message}`;
+    result.style.color = 'var(--red)';
+  } finally{
+    btn.disabled = false;
+  }
+}
+
+async function testInvolensData(){
+  const result = $('#involensDataResult');
+  const btn = $('#testInvolensDataBtn');
+  btn.disabled = true;
+  result.textContent = 'Checking...';
+  result.style.color = 'var(--ink-3)';
+  try{
+    const id = $('#cfg-involens-data-folder').value.trim();
+    if(!id) throw new Error('No folder ID entered');
+    State.settings.involens.dataFolderId = id;
+    persistLocal();
+    if(!State.drive.connected) throw new Error('Connect Drive first');
+    // Verify folder exists
+    const folderResp = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=id,name,mimeType`, {
+      headers: { 'Authorization': 'Bearer ' + State.drive.accessToken }
+    });
+    if(!folderResp.ok) throw new Error(`HTTP ${folderResp.status} — folder not accessible`);
+    const folder = await folderResp.json();
+    if(folder.mimeType !== 'application/vnd.google-apps.folder'){
+      throw new Error(`Not a folder`);
+    }
+    // Look for involens_invoices.json
+    const file = await findInvolensJsonFile();
+    if(!file){
+      result.textContent = `⚠ "${folder.name}" found, but no involens_invoices.json inside`;
+      result.style.color = 'var(--amber, #b8860b)';
+      return;
+    }
+    const sizeKb = file.size ? Math.round(parseInt(file.size, 10) / 1024) : '?';
+    result.textContent = `✓ "${folder.name}" — JSON ${sizeKb}KB, modified ${fmtRelative(file.modifiedTime)}`;
     result.style.color = 'var(--green)';
   } catch(err){
     result.textContent = `✗ ${err.message}`;
@@ -3153,7 +3303,12 @@ function saveSettingsSection(section){
   if(proxyInput && proxyInput.value){
     State.settings.proxy.url = proxyInput.value.trim().replace(/\/+$/, ''); // strip trailing slash
   }
-  // InvoLens folder ID — same treatment as proxy URL (no masking, plain text config)
+  // InvoLens folder IDs — same treatment as proxy URL (no masking, plain text config)
+  const involensDataInput = $('#cfg-involens-data-folder');
+  if(involensDataInput && involensDataInput.value){
+    State.settings.involens = State.settings.involens || {};
+    State.settings.involens.dataFolderId = involensDataInput.value.trim();
+  }
   const involensInput = $('#cfg-involens-folder');
   if(involensInput && involensInput.value){
     State.settings.involens = State.settings.involens || {};
@@ -3207,7 +3362,11 @@ function applySettingsToInputs(){
   if(proxyInput && State.settings.proxy && State.settings.proxy.url){
     proxyInput.value = State.settings.proxy.url;
   }
-  // InvoLens folder ID — plain value
+  // InvoLens folder IDs — plain values
+  const involensDataInput = $('#cfg-involens-data-folder');
+  if(involensDataInput && State.settings.involens && State.settings.involens.dataFolderId){
+    involensDataInput.value = State.settings.involens.dataFolderId;
+  }
   const involensInput = $('#cfg-involens-folder');
   if(involensInput && State.settings.involens && State.settings.involens.invoicesFolderId){
     involensInput.value = State.settings.involens.invoicesFolderId;
@@ -3238,6 +3397,13 @@ function initDrive(){
       readDriveJSON('tracklens_settings.json').then(s => {
         if(s) Object.assign(State.settings, s);
         applySettingsToInputs();
+        // Once settings are hydrated (which may include the InvoLens folder ID),
+        // try the auto-fetch. Silent — user-driven runs use the Refresh button instead.
+        if(State.settings.involens?.dataFolderId){
+          fetchInvolensFromDrive({ silent: true, force: false }).catch(e => {
+            console.warn('[TrackLens] Auto-fetch from Drive failed:', e);
+          });
+        }
       }).catch(()=>{});
       readDriveJSON('tracklens_tokens.json').then(t => {
         if(t) Object.assign(State.tokens, t);
@@ -3392,7 +3558,9 @@ function init(){
   // Settings buttons
   $('#testCargoBtn').addEventListener('click', testCargoConnection);
   $('#testProxyBtn').addEventListener('click', testProxyHealth);
+  $('#testInvolensDataBtn').addEventListener('click', testInvolensData);
   $('#testInvolensFolderBtn').addEventListener('click', testInvolensFolder);
+  $('#refreshFromDriveBtn').addEventListener('click', () => fetchInvolensFromDrive({ silent: false, force: true }));
   $('#clearTokensBtn').addEventListener('click', () => {
     if(confirm('Clear cached Cargo verification? You will need to re-test before fetching labels.')){
       clearAllTokens();
@@ -3435,6 +3603,7 @@ function init(){
   }
   renderDispatch();
   renderDriveStatus();
+  renderDriveSourceIndicator();
   initDrive();
 }
 
