@@ -336,6 +336,282 @@
   }
   .empty-state p{font-size:13px;margin-bottom:18px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.6}
 
+  /* ===== v1.1.3 Planning bar / urgency / picklist ===== */
+  .planning-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:14px;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 16px;
+    background:linear-gradient(180deg, #fdfbf3, #f8f4e8);
+    border:1px solid var(--line);
+    border-radius:10px;
+    margin-bottom:12px;
+  }
+  .planning-left, .planning-right{
+    display:flex;
+    flex-wrap:wrap;
+    gap:14px;
+    align-items:center;
+  }
+  .plan-group{display:flex;align-items:center;gap:6px}
+  .plan-group label{
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    font-weight:600;
+    color:var(--ink-3);
+  }
+  .plan-input{
+    border:1px solid var(--line);
+    background:#fff;
+    border-radius:6px;
+    padding:6px 10px;
+    font-size:12.5px;
+    font-family:inherit;
+    color:var(--ink);
+  }
+  .plan-input:focus{outline:none;border-color:var(--accent)}
+  .view-toggle{
+    display:inline-flex;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:6px;
+    overflow:hidden;
+  }
+  .view-btn{
+    background:transparent;
+    border:none;
+    padding:6px 12px;
+    font-size:12px;
+    font-family:inherit;
+    color:var(--ink-2);
+    cursor:pointer;
+    border-right:1px solid var(--line);
+  }
+  .view-btn:last-child{border-right:none}
+  .view-btn.active{background:var(--ink);color:#fff}
+  .view-btn:hover:not(.active){background:var(--cream)}
+
+  .urgency-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+    padding:10px 14px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    margin-bottom:12px;
+  }
+  .ub-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:5px 10px;
+    border-radius:15px;
+    background:var(--cream);
+    border:1px solid var(--line);
+    font-size:11.5px;
+    color:var(--ink-2);
+    cursor:pointer;
+    user-select:none;
+    transition:all .15s;
+  }
+  .ub-chip:hover{transform:translateY(-1px)}
+  .ub-chip.selected{box-shadow:0 0 0 2px var(--accent-soft)}
+  .ub-chip .dot{width:8px;height:8px;border-radius:50%}
+  .ub-chip.critical .dot{background:#a63333}
+  .ub-chip.high .dot{background:#c87914}
+  .ub-chip.medium .dot{background:#a18a14}
+  .ub-chip.low .dot{background:#888}
+  .ub-chip .cnt{
+    font-weight:600;
+    background:#fff;
+    padding:1px 7px;
+    border-radius:8px;
+    font-size:10.5px;
+    min-width:22px;
+    text-align:center;
+  }
+  .ub-spacer{flex:1}
+  .ub-meta{
+    font-size:11px;
+    color:var(--ink-3);
+    font-style:italic;
+  }
+
+  /* Urgency badge in row */
+  .urgency-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    font-size:10.5px;
+    padding:2px 7px;
+    border-radius:10px;
+    background:var(--cream);
+    color:var(--ink-2);
+    cursor:pointer;
+    border:1px solid transparent;
+  }
+  .urgency-badge:hover{border-color:var(--ink-3)}
+  .urgency-badge .udot{width:7px;height:7px;border-radius:50%}
+  .urgency-badge.critical{background:#fbeaea;color:#a63333}
+  .urgency-badge.critical .udot{background:#a63333}
+  .urgency-badge.high{background:#fbf0e2;color:#c87914}
+  .urgency-badge.high .udot{background:#c87914}
+  .urgency-badge.medium{background:#f9f3da;color:#8a7510}
+  .urgency-badge.medium .udot{background:#a18a14}
+  .urgency-badge.low{background:#f0f0f0;color:#666}
+  .urgency-badge.low .udot{background:#888}
+  .urgency-badge.manual{
+    box-shadow:inset 0 0 0 1px var(--accent);
+  }
+
+  /* Picklist (SKU-grouped) */
+  .picklist-header{
+    margin-bottom:14px;
+    padding:14px 16px;
+    background:linear-gradient(180deg, #fdfbf3, #f8f4e8);
+    border:1px solid var(--line);
+    border-radius:10px;
+  }
+  .picklist-title{
+    font-family:'Fraunces', serif;
+    font-size:18px;
+    font-weight:500;
+    margin:0 0 4px 0;
+    color:var(--ink);
+  }
+  .picklist-sub{
+    font-size:12.5px;
+    color:var(--ink-2);
+    margin:0;
+  }
+  .pl-group{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    margin-bottom:12px;
+    overflow:hidden;
+  }
+  .pl-group-header{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    padding:14px 16px;
+    background:var(--cream);
+    border-bottom:1px solid var(--line);
+    gap:14px;
+  }
+  .pl-group-meta{flex:1}
+  .pl-sku{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    color:var(--ink-3);
+    margin-bottom:3px;
+  }
+  .pl-product{
+    font-family:'Fraunces', serif;
+    font-size:16px;
+    font-weight:500;
+    color:var(--ink);
+    margin-bottom:4px;
+    line-height:1.3;
+  }
+  .pl-counts{
+    display:flex;
+    gap:10px;
+    align-items:center;
+    font-size:11.5px;
+    color:var(--ink-2);
+  }
+  .pl-qty{
+    font-family:'Fraunces', serif;
+    font-size:32px;
+    line-height:1;
+    font-weight:500;
+    color:var(--ink);
+    min-width:50px;
+    text-align:right;
+  }
+  .pl-qty-sub{
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--ink-3);
+    text-align:right;
+    margin-top:2px;
+  }
+  .pl-orders{
+    padding:0;
+    margin:0;
+    list-style:none;
+  }
+  .pl-orders li{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:8px 16px;
+    border-bottom:1px solid var(--line);
+    font-size:12px;
+  }
+  .pl-orders li:last-child{border-bottom:none}
+  .pl-orders li.row-selected{background:#fbf9f1}
+  .pl-orders .pl-cb{
+    width:14px;
+    height:14px;
+    accent-color:var(--accent);
+    cursor:pointer;
+  }
+  .pl-orders .pl-customer{
+    flex:1;
+    color:var(--ink);
+  }
+  .pl-orders .pl-customer .small{
+    color:var(--ink-3);
+    font-size:10.5px;
+    margin-left:6px;
+  }
+  .pl-orders .pl-awb{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px;
+    color:var(--ink-3);
+  }
+
+  /* A4 print stylesheet for picklist */
+  @media print {
+    body * { visibility:hidden; }
+    #dispatchPicklistView, #dispatchPicklistView * { visibility:visible; }
+    #dispatchPicklistView {
+      position:absolute; left:0; top:0; width:100%;
+      padding:20px;
+    }
+    .pl-group{break-inside:avoid; page-break-inside:avoid; margin-bottom:8px}
+    .pl-group-header{background:#f5f5f5 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+    .pl-orders .pl-cb{display:none}
+    .urgency-badge{
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+    .planning-bar, .urgency-bar, .filter-bar, .stat-grid, .section-header,
+    .tabs, .topbar, #driveSourceIndicator, #bulkBar { display:none !important; }
+  }
+
+  /* Mobile responsive for the table */
+  @media (max-width: 720px){
+    .planning-bar{flex-direction:column;align-items:stretch}
+    .planning-left, .planning-right{justify-content:center}
+    .urgency-bar{justify-content:center}
+    .ub-meta{display:none}
+    /* Order table becomes scrollable horizontally */
+    #dispatchTable{font-size:11px}
+    .pl-group-header{flex-direction:column;align-items:flex-start}
+    .pl-qty{text-align:left}
+    .pl-qty-sub{text-align:left}
+  }
+
   /* ===== v1.1.2 Dispatch (batch) panel ===== */
   .filter-bar{
     display:flex;
@@ -883,7 +1159,7 @@
 <header class="topbar">
   <div class="brand">
     <div class="logo">Track<span class="accent">Lens</span></div>
-    <div class="ver">v1.1.2</div>
+    <div class="ver">v1.1.3</div>
   </div>
   <div class="auth-cluster">
     <div class="sync-pill" id="driveSyncPill">
@@ -973,6 +1249,54 @@
 
     <div id="dispatchContent" style="display:none">
 
+      <!-- v1.1.3: Planning toolbar -->
+      <div class="planning-bar">
+        <div class="planning-left">
+          <div class="plan-group">
+            <label>Plan dispatch for</label>
+            <input type="date" id="planDate" class="plan-input" />
+            <button class="btn ghost sm" id="planDateToday" title="Reset to today">Today</button>
+          </div>
+          <div class="plan-group">
+            <label>View</label>
+            <div class="view-toggle">
+              <button class="view-btn active" data-view="orders">📋 Order list</button>
+              <button class="view-btn" data-view="picklist">📦 Picklist (by SKU)</button>
+            </div>
+          </div>
+        </div>
+        <div class="planning-right">
+          <button class="btn ghost sm" id="printPicklistBtn" style="display:none" title="Print A4-friendly picklist">🖨 Print</button>
+          <button class="btn accent sm" id="sendToDispatchBtn" disabled>Send 0 to Dispatch</button>
+        </div>
+      </div>
+
+      <!-- Urgency stats row -->
+      <div class="urgency-bar">
+        <div class="ub-chip critical" data-urgency="critical">
+          <span class="dot"></span>
+          <span class="lbl">Ship today</span>
+          <span class="cnt" id="ub-critical">0</span>
+        </div>
+        <div class="ub-chip high" data-urgency="high">
+          <span class="dot"></span>
+          <span class="lbl">Should ship</span>
+          <span class="cnt" id="ub-high">0</span>
+        </div>
+        <div class="ub-chip medium" data-urgency="medium">
+          <span class="dot"></span>
+          <span class="lbl">Buffer</span>
+          <span class="cnt" id="ub-medium">0</span>
+        </div>
+        <div class="ub-chip low" data-urgency="low">
+          <span class="dot"></span>
+          <span class="lbl">Relaxed</span>
+          <span class="cnt" id="ub-low">0</span>
+        </div>
+        <div class="ub-spacer"></div>
+        <div class="ub-meta" id="ubPlanContext">Planning for today</div>
+      </div>
+
       <div class="filter-bar">
         <div class="filter-chip active" data-filter="all">All <span class="count" id="fc-all">0</span></div>
         <div class="filter-chip" data-filter="ready">Ready <span class="count" id="fc-ready">0</span></div>
@@ -993,11 +1317,13 @@
         </div>
       </div>
 
-      <div class="table-wrap">
+      <!-- ORDER LIST VIEW (default) -->
+      <div class="table-wrap" id="dispatchOrderView">
         <table id="dispatchTable">
           <thead>
             <tr>
               <th style="width:40px"><input type="checkbox" id="selectAll" /></th>
+              <th style="width:90px">Urgency</th>
               <th>Invoice</th>
               <th>Order ID</th>
               <th>Platform</th>
@@ -1012,6 +1338,15 @@
           </thead>
           <tbody id="dispatchTbody"></tbody>
         </table>
+      </div>
+
+      <!-- PICKLIST VIEW (SKU-grouped) -->
+      <div id="dispatchPicklistView" style="display:none">
+        <div class="picklist-header">
+          <h3 class="picklist-title">📦 Picklist — grouped by SKU for warehouse picker</h3>
+          <p class="picklist-sub" id="picklistSummary">Plan for <strong>today</strong>. Pick the items below from inventory in one trip.</p>
+        </div>
+        <div id="picklistGroups"></div>
       </div>
     </div>
   </section>
@@ -1360,8 +1695,8 @@
           <h3>About TrackLens</h3>
           <p class="desc">Honey Touch shipment dispatch & SLA tracker. Reads orders from InvoLens, fetches shipping labels from courier APIs, monitors status, and triggers alerts.</p>
           <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);line-height:2">
-            <div>Version: <strong>1.1.2</strong> (Bulk dispatch — Cargo labels + Drive invoice fetch)</div>
-            <div>Canonical: <strong>tracklens_v1.1.2.html</strong></div>
+            <div>Version: <strong>1.1.3</strong> (Picklist + urgency + planning date)</div>
+            <div>Canonical: <strong>tracklens_v1.1.3.html</strong></div>
             <div>Storage key: <strong>tracklens_v1</strong></div>
             <div>Build date: 2026-04-28</div>
           </div>
@@ -1479,7 +1814,16 @@ const State = {
   // Per-invoice AWB overrides. Map<invoiceId, { awb, setAt, originalAwb }>
   // Used when InvoLens AWB is corrupted (sci notation) or missing — local fix
   // for unblocking dispatch. Never written back to InvoLens. Survives refreshes.
-  awbOverrides: {}
+  awbOverrides: {},
+  // Per-invoice manual urgency overrides. Map<invoiceId, { bucket, setAt }>
+  // For VIP customers, special cases. Bucket is 'critical' | 'high' | 'medium' | 'low'.
+  urgencyOverrides: {},
+  // v1.1.3 — planning state
+  planning: {
+    planDate: null,           // YYYY-MM-DD - which date the user is planning dispatch FOR
+    view: 'orders',           // 'orders' | 'picklist' (the toggle on Today's Dispatch)
+    urgencyFilter: 'all'      // 'all' | 'critical' | 'high' | 'medium' | 'low'
+  }
 };
 
 /* Courier options - canonical list across the app */
@@ -1565,6 +1909,155 @@ function checkAwbIntegrity(awb){
 // Length heuristic was removed because the only signal available (AWB length)
 // turned out to be a corruption artifact, not a real courier difference.
 function inferCourier(_awb){ return null; }
+
+/* ============================================================
+ * v1.1.3 — Urgency / Priority engine
+ * ============================================================
+ *
+ * Each invoice gets an urgency score combining:
+ *   - days since invoice was generated  (primary signal)
+ *   - destination state's average transit days (multiplier — far = ship sooner)
+ *   - replacement flag (always priority bump)
+ *   - promised_delivery_date if available (SLA breach incoming → max priority)
+ *   - manual urgency override (per-row, rare)
+ *
+ * Bucketed into:
+ *   🔴 critical (ship today)
+ *   🟠 high (should ship today)
+ *   🟡 medium (buffer)
+ *   ⚪ low (relaxed, can wait)
+ */
+
+// State → average transit days from Kalyan, MH warehouse.
+// Editable in Settings later. Used as a multiplier in the urgency score.
+const ZONE_TRANSIT_DAYS = {
+  // Local (1-2 days)
+  'MH': 2, 'Maharashtra': 2,
+  // West/South (3 days)
+  'GJ': 3, 'Gujarat': 3, 'KA': 3, 'Karnataka': 3, 'GA': 3, 'Goa': 3,
+  'AP': 3, 'Andhra Pradesh': 3, 'TS': 3, 'TG': 3, 'Telangana': 3,
+  'TN': 3, 'Tamil Nadu': 3, 'KL': 3, 'Kerala': 3,
+  'MP': 3, 'Madhya Pradesh': 3,
+  // North plain (4 days)
+  'DL': 4, 'Delhi': 4, 'HR': 4, 'Haryana': 4, 'RJ': 4, 'Rajasthan': 4,
+  'UP': 4, 'Uttar Pradesh': 4, 'UK': 4, 'Uttarakhand': 4, 'CG': 4, 'Chhattisgarh': 4,
+  // North hills (5 days)
+  'PB': 5, 'Punjab': 5, 'HP': 5, 'Himachal Pradesh': 5, 'JK': 5, 'J&K': 5,
+  'Jammu and Kashmir': 5, 'LA': 5, 'Ladakh': 5,
+  // East (5 days)
+  'WB': 5, 'West Bengal': 5, 'BR': 5, 'Bihar': 5,
+  'JH': 5, 'Jharkhand': 5, 'OD': 5, 'OR': 5, 'Odisha': 5,
+  // North-East (7 days)
+  'AS': 7, 'Assam': 7, 'AR': 7, 'Arunachal Pradesh': 7,
+  'MN': 7, 'Manipur': 7, 'ML': 7, 'Meghalaya': 7,
+  'MZ': 7, 'Mizoram': 7, 'NL': 7, 'Nagaland': 7,
+  'SK': 7, 'Sikkim': 7, 'TR': 7, 'Tripura': 7,
+  // Islands (7 days)
+  'AN': 7, 'Andaman and Nicobar Islands': 7, 'LD': 7, 'Lakshadweep': 7,
+  // UTs / misc
+  'CH': 4, 'Chandigarh': 4, 'PY': 3, 'Puducherry': 3, 'DN': 3, 'DD': 3
+};
+
+function getTransitDaysFromState(stateRaw){
+  if(!stateRaw) return 4;  // unknown — assume mid-range
+  const s = String(stateRaw).trim();
+  if(ZONE_TRANSIT_DAYS[s] != null) return ZONE_TRANSIT_DAYS[s];
+  // Try uppercase 2-letter
+  const upper2 = s.slice(0, 2).toUpperCase();
+  if(ZONE_TRANSIT_DAYS[upper2] != null) return ZONE_TRANSIT_DAYS[upper2];
+  // Default: 4 (north-plain)
+  return 4;
+}
+
+function daysBetween(d1, d2){
+  // Returns whole days between YYYY-MM-DD strings (or Date objects). Ignores time.
+  if(!d1 || !d2) return 0;
+  const a = new Date(typeof d1 === 'string' ? d1.slice(0,10) : d1);
+  const b = new Date(typeof d2 === 'string' ? d2.slice(0,10) : d2);
+  if(isNaN(a) || isNaN(b)) return 0;
+  return Math.round((b - a) / (24 * 60 * 60 * 1000));
+}
+
+/* Compute urgency for a single row, relative to a planning date (default = today).
+ * Returns { score, bucket, reason } where bucket is 'critical'|'high'|'medium'|'low'.
+ */
+function computeUrgency(row, planDateStr){
+  const today = planDateStr || new Date().toISOString().slice(0, 10);
+  const invoiceDate = row.invoiceDate || (row.createdAt || '').slice(0, 10);
+  const daysSinceInvoice = Math.max(0, daysBetween(invoiceDate, today));
+  const transitDays = getTransitDaysFromState(row.state);
+  const isReplacement = !!row.isReplacement;
+  const promiseDate = row.promisedDeliveryDate || null;
+
+  // Manual urgency override (per-row)
+  const manualOverride = State.urgencyOverrides?.[row.id];
+  if(manualOverride) {
+    return {
+      score: 999,
+      bucket: manualOverride.bucket,
+      reason: 'manual override',
+      manual: true
+    };
+  }
+
+  // SLA-breach signal: if promise date is within transit-time window of today, urgent
+  let slaPressure = 0;
+  let slaReason = '';
+  if(promiseDate){
+    const daysToPromise = daysBetween(today, promiseDate);
+    // If we ship today, will it arrive by promise date?
+    const slack = daysToPromise - transitDays;
+    if(slack < 0){
+      slaPressure = 100;
+      slaReason = `late by ${Math.abs(slack)}d`;
+    } else if(slack === 0){
+      slaPressure = 80;
+      slaReason = 'must ship today';
+    } else if(slack <= 1){
+      slaPressure = 50;
+      slaReason = 'must ship in 1d';
+    } else if(slack <= 2){
+      slaPressure = 20;
+      slaReason = 'tight SLA';
+    }
+  }
+
+  // Score combination
+  const ageScore = daysSinceInvoice * 12;        // 0–60 (5+ days = 60)
+  const zoneScore = transitDays * 4;              // 8–28
+  const replBonus = isReplacement ? 30 : 0;
+  const score = Math.min(999, ageScore + zoneScore + replBonus + slaPressure);
+
+  let bucket, reason;
+  if(slaReason){
+    if(slaPressure >= 80) { bucket = 'critical'; reason = slaReason; }
+    else if(slaPressure >= 50) { bucket = 'high'; reason = slaReason; }
+    else { bucket = 'medium'; reason = slaReason; }
+  } else if(score >= 80){
+    bucket = 'critical';
+    reason = `${daysSinceInvoice}d old · ${transitDays}d transit`;
+  } else if(score >= 50){
+    bucket = 'high';
+    reason = `${daysSinceInvoice}d old · ${transitDays}d transit`;
+  } else if(score >= 25){
+    bucket = 'medium';
+    reason = `${daysSinceInvoice}d old · ${transitDays}d transit`;
+  } else {
+    bucket = 'low';
+    reason = 'fresh order';
+  }
+
+  if(isReplacement) reason = 'replacement · ' + reason;
+
+  return { score, bucket, reason, daysSinceInvoice, transitDays, slaPressure };
+}
+
+const URGENCY_LABELS = {
+  critical: { dot: '🔴', label: 'Critical', color: '#a63333' },
+  high:     { dot: '🟠', label: 'High',     color: '#c87914' },
+  medium:   { dot: '🟡', label: 'Medium',   color: '#a18a14' },
+  low:      { dot: '⚪', label: 'Low',      color: '#777' }
+};
 
 /* ------------------- AWB Overrides ------------------- */
 /* When InvoLens has a corrupted/missing AWB, the user can paste the correct one
@@ -1673,7 +2166,9 @@ function persistLocal(){
       tokens: State.tokens,
       dispatched: State.dispatched,
       batchHistory: State.batch.history,
-      awbOverrides: State.awbOverrides
+      awbOverrides: State.awbOverrides,
+      urgencyOverrides: State.urgencyOverrides,
+      planning: State.planning
     }));
   }catch(e){
     // file:// or quota — fail silent, Drive is source of truth
@@ -1691,6 +2186,8 @@ function restoreLocal(){
     if(parsed.dispatched) State.dispatched = parsed.dispatched;
     if(parsed.batchHistory) State.batch.history = parsed.batchHistory;
     if(parsed.awbOverrides) State.awbOverrides = parsed.awbOverrides;
+    if(parsed.urgencyOverrides) State.urgencyOverrides = parsed.urgencyOverrides;
+    if(parsed.planning) Object.assign(State.planning, parsed.planning);
   }catch(e){}
   // Defensive defaults — fields added in later versions may not be in older saves
   if(!State.settings.involens) State.settings.involens = { dataFolderId: '', invoicesFolderId: '', lastFetchedAt: null, lastModifiedTime: null };
@@ -1754,7 +2251,7 @@ function normalizeInvoLensRecord(r){
     qty: firstLine.qty || 0,
     amount: r.totals?.grand_total || 0,
     lineCount: (r.lines || []).length,
-    promisedDeliveryDate: null,
+    promisedDeliveryDate: r.promised_delivery_date || r.promise_by || r.promiseByDate || null,
     dispatchStatus: 'ready',
     invoicePdf: r.invoice_pdf || (r.pdf_drive_id ? {
       // InvoLens current shape (flat fields) — normalize to the same nested shape
@@ -1945,6 +2442,34 @@ function renderDispatch(){
   $('#dispatchEmpty').style.display = 'none';
   $('#dispatchContent').style.display = 'block';
 
+  // v1.1.3 — Compute urgency for every row, against current planning date
+  const planDate = State.planning.planDate || new Date().toISOString().slice(0, 10);
+  allRows.forEach(r => {
+    r._urgency = computeUrgency(r, planDate);
+  });
+  // Sort by urgency score DESC (most urgent first)
+  allRows.sort((a, b) => (b._urgency.score || 0) - (a._urgency.score || 0));
+
+  // Update urgency bar counts
+  const buckets = { critical:0, high:0, medium:0, low:0 };
+  allRows.forEach(r => { if(buckets[r._urgency.bucket] != null) buckets[r._urgency.bucket]++; });
+  $('#ub-critical').textContent = buckets.critical;
+  $('#ub-high').textContent = buckets.high;
+  $('#ub-medium').textContent = buckets.medium;
+  $('#ub-low').textContent = buckets.low;
+
+  // Plan context tooltip
+  const today = new Date().toISOString().slice(0, 10);
+  const ctxText = planDate === today
+    ? 'Planning for today'
+    : `Planning for ${fmtPlanDate(planDate)}`;
+  $('#ubPlanContext').textContent = ctxText;
+
+  // Highlight selected urgency filter chip
+  document.querySelectorAll('.ub-chip').forEach(chip => {
+    chip.classList.toggle('selected', chip.dataset.urgency === State.planning.urgencyFilter);
+  });
+
   const untagged = allRows.filter(r => !r.courier).length;
   const missingAwb = allRows.filter(r => !r.awb).length;
   const corruptedAwb = allRows.filter(r => r.awb && !r.awbOk).length;
@@ -1970,21 +2495,171 @@ function renderDispatch(){
   $('#fc-untagged').textContent = untagged;
   $('#fc-missing').textContent = missingAwb + corruptedAwb;
 
-  const filtered = filterRows();
-  const tbody = $('#dispatchTbody');
-  tbody.innerHTML = '';
+  const filtered = filterRowsWithUrgency(allRows);
 
-  if(filtered.length === 0){
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--ink-3)">No orders match this filter.</td></tr>`;
+  // Choose which view to render
+  const view = State.planning.view || 'orders';
+  if(view === 'picklist'){
+    $('#dispatchOrderView').style.display = 'none';
+    $('#dispatchPicklistView').style.display = 'block';
+    $('#printPicklistBtn').style.display = '';
+    renderPicklist(filtered);
   } else {
-    filtered.forEach(r => tbody.appendChild(renderRow(r)));
+    $('#dispatchOrderView').style.display = '';
+    $('#dispatchPicklistView').style.display = 'none';
+    $('#printPicklistBtn').style.display = 'none';
+    renderOrderTable(filtered);
   }
 
   // Update header checkbox state
   $('#selectAll').checked = filtered.length > 0 && filtered.every(r => State.selected.has(r.id));
   updateBulkBar();
   updateGenerateBtn();
+  updateSendToDispatchBtn();
+
+  // View toggle button states
+  document.querySelectorAll('.view-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === view);
+  });
 }
+
+function fmtPlanDate(dateStr){
+  if(!dateStr) return 'today';
+  const d = new Date(dateStr);
+  if(isNaN(d)) return dateStr;
+  const today = new Date().toISOString().slice(0,10);
+  if(dateStr === today) return 'today';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function renderOrderTable(filtered){
+  const tbody = $('#dispatchTbody');
+  tbody.innerHTML = '';
+  if(filtered.length === 0){
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--ink-3)">No orders match these filters.</td></tr>`;
+  } else {
+    filtered.forEach(r => tbody.appendChild(renderRow(r)));
+  }
+}
+
+/* SKU-grouped picklist view. Receives the same filtered (urgency-sorted) row set. */
+function renderPicklist(rows){
+  const container = $('#picklistGroups');
+  if(rows.length === 0){
+    container.innerHTML = `<div class="empty-state" style="background:#fff;border:1px solid var(--line);border-radius:10px"><div class="icon">⎙</div><h3>No orders match the current plan</h3><p>Try a different date, urgency filter, or search.</p></div>`;
+    return;
+  }
+
+  // Group by SKU. Within each group, preserve the urgency-sorted order.
+  const groups = {};
+  rows.forEach(r => {
+    const sku = r.sku || '(no SKU)';
+    if(!groups[sku]) groups[sku] = { sku, productName: r.productName || '(unnamed)', orders: [], totalQty: 0 };
+    groups[sku].orders.push(r);
+    groups[sku].totalQty += (r.qty || 1);
+  });
+
+  // Sort groups by max urgency score within the group (most urgent group first)
+  const sortedGroups = Object.values(groups).sort((a, b) => {
+    const aMax = Math.max(...a.orders.map(o => o._urgency.score || 0));
+    const bMax = Math.max(...b.orders.map(o => o._urgency.score || 0));
+    return bMax - aMax;
+  });
+
+  // Plan summary
+  const planDate = State.planning.planDate || new Date().toISOString().slice(0, 10);
+  $('#picklistSummary').innerHTML = `Plan for <strong>${escapeHtml(fmtPlanDate(planDate))}</strong> · <strong>${rows.length}</strong> orders · <strong>${sortedGroups.length}</strong> SKU${sortedGroups.length === 1 ? '' : 's'} · pick the items below from inventory in one trip.`;
+
+  container.innerHTML = sortedGroups.map(g => renderPicklistGroup(g)).join('');
+
+  // Bind checkboxes within picklist
+  container.querySelectorAll('.pl-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.id;
+      if(cb.checked) State.selected.add(id);
+      else State.selected.delete(id);
+      // Toggle visual selected state on parent row
+      cb.closest('li').classList.toggle('row-selected', cb.checked);
+      updateBulkBar();
+      updateGenerateBtn();
+      updateSendToDispatchBtn();
+    });
+  });
+}
+
+function renderPicklistGroup(g){
+  const ordersHtml = g.orders.map(o => {
+    const u = o._urgency;
+    const ulabel = URGENCY_LABELS[u.bucket] || URGENCY_LABELS.low;
+    const isSelected = State.selected.has(o.id);
+    const eligible = o.awb && o.awbOk && o.courier === 'cargo' && !State.dispatched[o.id];
+    const cbDisabled = !eligible ? 'disabled' : '';
+
+    return `<li class="${isSelected ? 'row-selected' : ''}">
+      <input type="checkbox" class="pl-cb" data-id="${escapeHtml(o.id)}" ${isSelected ? 'checked' : ''} ${cbDisabled} title="${eligible ? '' : 'Not yet eligible — needs valid AWB and Cargo tag'}" />
+      <span class="urgency-badge ${u.bucket}" title="${escapeHtml(u.reason)}">
+        <span class="udot"></span>${ulabel.label}
+      </span>
+      <span class="pl-customer">
+        ${escapeHtml(o.customerName || '—')}
+        <span class="small">${escapeHtml(o.pincode || '')} ${escapeHtml(o.state || '')}${o.isReplacement ? ' · replacement' : ''}</span>
+      </span>
+      <span class="pl-awb">${escapeHtml(o.awb || 'no AWB')}</span>
+    </li>`;
+  }).join('');
+
+  return `<div class="pl-group">
+    <div class="pl-group-header">
+      <div class="pl-group-meta">
+        <div class="pl-sku">${escapeHtml(g.sku)}</div>
+        <div class="pl-product">${escapeHtml(g.productName)}</div>
+        <div class="pl-counts">${g.orders.length} order${g.orders.length === 1 ? '' : 's'} · ships to ${[...new Set(g.orders.map(o => o.state).filter(Boolean))].join(', ') || 'multiple states'}</div>
+      </div>
+      <div>
+        <div class="pl-qty">×${g.totalQty}</div>
+        <div class="pl-qty-sub">to pick</div>
+      </div>
+    </div>
+    <ul class="pl-orders">${ordersHtml}</ul>
+  </div>`;
+}
+
+function filterRowsWithUrgency(allRows){
+  let rows = allRows.slice();
+  // Existing filters
+  switch(State.filter){
+    case 'ready': rows = rows.filter(r => r.awb && r.awbOk && r.courier); break;
+    case 'untagged': rows = rows.filter(r => !r.courier); break;
+    case 'missing': rows = rows.filter(r => !r.awb || !r.awbOk); break;
+  }
+  // Urgency filter
+  if(State.planning.urgencyFilter && State.planning.urgencyFilter !== 'all'){
+    rows = rows.filter(r => r._urgency?.bucket === State.planning.urgencyFilter);
+  }
+  // Search
+  if(State.search){
+    const s = State.search.toLowerCase();
+    rows = rows.filter(r =>
+      (r.invoiceNo||'').toLowerCase().includes(s) ||
+      (r.orderId||'').toLowerCase().includes(s) ||
+      (r.awb||'').toLowerCase().includes(s) ||
+      (r.sku||'').toLowerCase().includes(s) ||
+      (r.customerName||'').toLowerCase().includes(s) ||
+      (r.pincode||'').includes(s)
+    );
+  }
+  return rows;
+}
+
+function updateSendToDispatchBtn(){
+  const btn = $('#sendToDispatchBtn');
+  if(!btn) return;
+  const n = State.selected.size;
+  btn.textContent = `Send ${n} to Dispatch`;
+  btn.disabled = n === 0;
+}
+
+
 
 function filterRows(){
   // Apply AWB overrides so filters and search see the effective AWB
@@ -2070,8 +2745,17 @@ function renderRow(r){
     awbCell = r.awb;
   }
 
+  // Urgency cell (v1.1.3)
+  const u = r._urgency || computeUrgency(r);
+  const ulabel = URGENCY_LABELS[u.bucket] || URGENCY_LABELS.low;
+  const isManual = !!u.manual;
+  const urgencyCell = `<span class="urgency-badge ${u.bucket} ${isManual ? 'manual' : ''}" data-urgency-row="${r.id}" title="${escapeHtml(u.reason)}${isManual ? ' (manual override — click to clear)' : ' (click to set manually)'}">
+    <span class="udot"></span>${ulabel.label}
+  </span>`;
+
   tr.innerHTML = `
     <td><input type="checkbox" data-row-id="${r.id}" ${checked} /></td>
+    <td>${urgencyCell}</td>
     <td class="mono" title="${r.invoiceNo}">${(r.invoiceNo||'').replace('inv_imp_','').slice(0,16)}…</td>
     <td class="mono">${r.orderId || '—'}</td>
     <td><span class="tag ${r.platform}">${platformLabel}</span></td>
@@ -2089,6 +2773,7 @@ function renderRow(r){
     else State.selected.delete(r.id);
     updateBulkBar();
     updateGenerateBtn();
+    updateSendToDispatchBtn();
   });
 
   const sel = tr.querySelector('select.courier-select');
@@ -2117,7 +2802,47 @@ function renderRow(r){
     });
   }
 
+  // Click urgency badge to manually override or clear
+  const urgBadge = tr.querySelector('[data-urgency-row]');
+  if(urgBadge){
+    urgBadge.addEventListener('click', () => openUrgencyMenu(r.id));
+  }
+
   return tr;
+}
+
+/* Manual urgency override picker. Cycles bucket on click, with right-click to clear. */
+function openUrgencyMenu(rowId){
+  const inv = State.invoices.find(x => x.id === rowId);
+  if(!inv) return;
+  const current = State.urgencyOverrides[rowId];
+  const buckets = ['critical', 'high', 'medium', 'low'];
+  const currentLabel = current ? URGENCY_LABELS[current.bucket].label : 'auto-computed';
+  const choice = window.prompt(
+    `Manual urgency for order ${inv.orderId}\n` +
+    `Customer: ${inv.customerName}\n\n` +
+    `Current: ${currentLabel}\n\n` +
+    `Type one of: critical / high / medium / low\n` +
+    `Or "clear" to remove the manual override.`,
+    current ? current.bucket : ''
+  );
+  if(choice === null) return;
+  const c = choice.trim().toLowerCase();
+  if(c === '' || c === 'clear' || c === 'auto'){
+    delete State.urgencyOverrides[rowId];
+    persistLocal();
+    renderDispatch();
+    toast('Urgency override cleared', 'success', 2000);
+    return;
+  }
+  if(!buckets.includes(c)){
+    toast('Invalid bucket. Use: critical, high, medium, or low.', 'error', 4000);
+    return;
+  }
+  State.urgencyOverrides[rowId] = { bucket: c, setAt: new Date().toISOString() };
+  persistLocal();
+  renderDispatch();
+  toast(`Urgency set to ${URGENCY_LABELS[c].label}`, 'success', 2000);
 }
 
 /* AWB editor — small modal for fixing corrupted/missing AWBs.
@@ -3403,7 +4128,10 @@ function bindFilters(){
     renderDispatch();
   });
   $('#selectAll').addEventListener('change', (e) => {
-    const filtered = filterRows();
+    const allRows = State.invoices.map(applyAwbOverride);
+    const planDate = State.planning.planDate || new Date().toISOString().slice(0, 10);
+    allRows.forEach(r => { r._urgency = computeUrgency(r, planDate); });
+    const filtered = filterRowsWithUrgency(allRows);
     if(e.target.checked) filtered.forEach(r => State.selected.add(r.id));
     else filtered.forEach(r => State.selected.delete(r.id));
     renderDispatch();
@@ -3411,6 +4139,60 @@ function bindFilters(){
   $('#bulkClearBtn').addEventListener('click', () => {
     State.selected.clear();
     renderDispatch();
+  });
+
+  // v1.1.3 — Date picker
+  const today = new Date().toISOString().slice(0, 10);
+  $('#planDate').value = State.planning.planDate || today;
+  $('#planDate').addEventListener('change', e => {
+    State.planning.planDate = e.target.value || today;
+    persistLocal();
+    renderDispatch();
+  });
+  $('#planDateToday').addEventListener('click', () => {
+    State.planning.planDate = new Date().toISOString().slice(0, 10);
+    $('#planDate').value = State.planning.planDate;
+    persistLocal();
+    renderDispatch();
+  });
+
+  // v1.1.3 — View toggle (orders ↔ picklist)
+  document.querySelectorAll('.view-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      State.planning.view = b.dataset.view;
+      persistLocal();
+      renderDispatch();
+    });
+  });
+
+  // v1.1.3 — Urgency filter chips
+  document.querySelectorAll('.ub-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const u = chip.dataset.urgency;
+      // Toggle: if already selected, clear back to 'all'
+      State.planning.urgencyFilter = (State.planning.urgencyFilter === u) ? 'all' : u;
+      persistLocal();
+      renderDispatch();
+    });
+  });
+
+  // v1.1.3 — Print picklist
+  $('#printPicklistBtn').addEventListener('click', () => {
+    window.print();
+  });
+
+  // v1.1.3 — Send to Dispatch
+  $('#sendToDispatchBtn').addEventListener('click', () => {
+    if(State.selected.size === 0){ toast('Nothing selected', 'error'); return; }
+    // Migrate selection from Today's Dispatch (State.selected) into batch (State.batch.selected)
+    State.selected.forEach(id => State.batch.selected.add(id));
+    // Switch tabs
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    document.querySelector('[data-panel="batch"]').classList.add('active');
+    document.querySelector('#panel-batch').classList.add('active');
+    if(typeof renderBatch === 'function') renderBatch();
+    toast(`${State.selected.size} orders sent to Dispatch tab`, 'success', 3000);
   });
 }
 
