@@ -336,6 +336,141 @@
   }
   .empty-state p{font-size:13px;margin-bottom:18px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.6}
 
+  /* ===== v1.2 Inbox / Status chips ===== */
+  .status-filter-bar{
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:10px;
+    padding:12px 14px;
+    background:var(--cream);
+    border:1px solid var(--line);
+    border-radius:10px;
+    margin-bottom:14px;
+  }
+  .status-filter-label{
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    font-weight:600;
+    color:var(--ink-3);
+  }
+  .status-chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  .status-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    padding:4px 10px;
+    border-radius:14px;
+    font-size:11.5px;
+    background:#fff;
+    border:1px solid var(--line);
+    cursor:pointer;
+    user-select:none;
+    transition:all .15s;
+  }
+  .status-chip:hover{transform:translateY(-1px)}
+  .status-chip.selected{
+    background:var(--ink);
+    color:#fff;
+    border-color:var(--ink);
+  }
+  .status-chip .scnt{
+    font-weight:600;
+    background:var(--cream);
+    color:var(--ink);
+    padding:1px 6px;
+    border-radius:8px;
+    font-size:10px;
+    min-width:18px;
+    text-align:center;
+  }
+  .status-chip.selected .scnt{
+    background:rgba(255,255,255,.2);
+    color:#fff;
+  }
+  .status-filter-bar .search-box{
+    flex:1;
+    min-width:200px;
+  }
+
+  /* Status pill — compact display in table cells */
+  .order-status{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    font-size:11px;
+    padding:3px 8px;
+    border-radius:10px;
+    white-space:nowrap;
+    font-weight:500;
+  }
+  .order-status .sdot{
+    width:6px;
+    height:6px;
+    border-radius:50%;
+  }
+  /* Status colors are set inline (color, bg) from STATUS_DEFS */
+
+  /* Status action menu */
+  .status-action-btn{
+    background:#fff;
+    border:1px solid var(--line);
+    color:var(--ink-2);
+    font-size:11px;
+    padding:4px 8px;
+    border-radius:5px;
+    cursor:pointer;
+  }
+  .status-action-btn:hover{
+    background:var(--cream);
+    border-color:var(--ink-3);
+  }
+
+  /* Context menu (right-click + button trigger) */
+  .ctx-menu{
+    position:fixed;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:8px;
+    box-shadow:0 6px 24px rgba(0,0,0,0.12);
+    padding:6px 0;
+    z-index:9999;
+    min-width:180px;
+    font-size:13px;
+  }
+  .ctx-menu .ctx-item{
+    padding:7px 14px;
+    cursor:pointer;
+    color:var(--ink);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .ctx-menu .ctx-item:hover{background:var(--cream)}
+  .ctx-menu .ctx-item.disabled{
+    color:var(--ink-3);
+    cursor:not-allowed;
+    pointer-events:none;
+  }
+  .ctx-menu .ctx-divider{
+    height:1px;
+    background:var(--line);
+    margin:5px 0;
+  }
+  .ctx-menu .ctx-header{
+    padding:6px 14px;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--ink-3);
+    font-weight:600;
+  }
+
   /* ===== v1.1.3 Planning bar / urgency / picklist ===== */
   .planning-bar{
     display:flex;
@@ -1172,31 +1307,117 @@
 
 <!-- ===== TABS ===== -->
 <nav class="tabs">
-  <div class="tab active" data-panel="dispatch">
-    Today's Dispatch
-    <span class="tab-badge" id="dispatchCount">0</span>
+  <div class="tab active" data-panel="inbox">
+    Master Database
+    <span class="tab-badge" id="inboxCount">0</span>
   </div>
-  <div class="tab" data-panel="batch">
-    Dispatch
-    <span class="tab-badge" id="batchCount">0</span>
+  <div class="tab" data-panel="plan">
+    Plan
+    <span class="tab-badge" id="planCount">0</span>
   </div>
-  <div class="tab" data-panel="tracking">
-    Live Tracking
-    <span class="tab-badge" id="trackingCount">0</span>
+  <div class="tab" data-panel="pack">
+    Pack &amp; Ship
+    <span class="tab-badge" id="packCount">0</span>
+  </div>
+  <div class="tab" data-panel="track">
+    Track
+    <span class="tab-badge" id="trackCount">0</span>
   </div>
   <div class="tab" data-panel="alerts">
     Alerts
     <span class="tab-badge" id="alertsCount">0</span>
   </div>
-  <div class="tab" data-panel="sla">SLA Performance</div>
+  <div class="tab" data-panel="sla">Performance</div>
   <div class="tab" data-panel="settings">Settings</div>
 </nav>
 
 <!-- ===== WORKSPACE ===== -->
 <main class="workspace">
 
-  <!-- ============= DISPATCH PANEL ============= -->
-  <section class="panel active" id="panel-dispatch">
+  <!-- ============= INBOX PANEL — Master Database, all orders ============= -->
+  <section class="panel active" id="panel-inbox">
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="label">Total in System</div>
+        <div class="value" id="inboxTotal">—</div>
+        <div class="sub" id="inboxTotalSub">all statuses</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Master DB</div>
+        <div class="value" id="inboxNew">—</div>
+        <div class="sub">unscheduled</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Dispatch Today</div>
+        <div class="value" id="inboxPlanned">—</div>
+        <div class="sub">planned for a date</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Hold</div>
+        <div class="value" id="inboxHold">—</div>
+        <div class="sub">paused orders</div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">
+        Master Database
+        <span class="count" id="inboxQueueCount">— orders</span>
+      </div>
+      <div class="section-actions">
+        <button class="btn ghost sm" id="inboxRefreshBtn" title="Fetch latest involens_invoices.json from Drive">
+          <span style="display:inline-block;transform:translateY(1px);margin-right:4px">↻</span>Refresh from Drive
+        </button>
+        <button class="btn ghost sm" id="inboxReimportBtn">Re-import (manual)</button>
+      </div>
+    </div>
+
+    <div id="inboxDriveSourceIndicator" style="font-size:11.5px;color:var(--ink-3);margin-bottom:10px;display:none">
+      <span class="mono">involens_invoices.json</span> · <span id="inboxDriveSourceModified">—</span> · fetched <span id="inboxDriveSourceFetched">—</span>
+    </div>
+
+    <div id="inboxEmpty" class="empty-state">
+      <div class="icon">⎙</div>
+      <h3>No orders loaded yet</h3>
+      <p>TrackLens auto-fetches <span class="mono">involens_invoices.json</span> from your Drive on app load. Configure the InvoLens Data folder ID in <strong>Settings → Drive Sync</strong>.</p>
+    </div>
+
+    <div id="inboxContent" style="display:none">
+
+      <!-- Status filter chips (multi-select) -->
+      <div class="status-filter-bar">
+        <span class="status-filter-label">Filter by status:</span>
+        <div class="status-chips" id="inboxStatusChips"></div>
+        <input type="search" class="search-box" id="inboxSearchBox" placeholder="Search order ID, AWB, customer, SKU…" />
+      </div>
+
+      <!-- Order table -->
+      <div class="table-wrap">
+        <table id="inboxTable">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Order ID</th>
+              <th>Date</th>
+              <th>Platform</th>
+              <th>SKU</th>
+              <th>Customer</th>
+              <th>Pincode</th>
+              <th>AWB</th>
+              <th>Courier</th>
+              <th style="width:130px">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="inboxTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ============= PLAN PANEL — multi-day dispatch planning ============= -->
+  <section class="panel" id="panel-plan">
 
     <div class="stat-grid">
       <div class="stat-card">
@@ -1351,8 +1572,8 @@
     </div>
   </section>
 
-  <!-- ============= DISPATCH (BATCH) PANEL — v1.1.2 ============= -->
-  <section class="panel" id="panel-batch">
+  <!-- ============= PACK & SHIP PANEL — v1.2 (was Dispatch in v1.1.2) ============= -->
+  <section class="panel" id="panel-pack">
 
     <!-- Stat row -->
     <div class="stat-grid">
@@ -1478,7 +1699,7 @@
     </div>
 
   </section>
-  <section class="panel" id="panel-tracking">
+  <section class="panel" id="panel-track">
     <div class="empty-state">
       <div class="icon">⊙</div>
       <h3>Live tracking — coming in v1.3</h3>
@@ -1844,7 +2065,14 @@ function suggestCourierFromAwb(awb){
 }
 
 /* ------------------- Utils ------------------- */
-const $ = (sel) => document.querySelector(sel);
+const $ = (sel) => {
+  const el = document.querySelector(sel);
+  if(!el && sel.startsWith('#')){
+    // Diagnostic: log which selectors miss, with stack trace, so we can find the real culprit fast
+    console.warn(`[TrackLens][diag] $('${sel}') returned null at:`, new Error().stack);
+  }
+  return el;
+};
 const $$ = (sel) => document.querySelectorAll(sel);
 
 function toast(msg, type='info', dur=3500){
@@ -2217,6 +2445,504 @@ function normalizeDate(raw){
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/* ============================================================
+ * v1.2 — Order status state machine
+ * ============================================================
+ *
+ * Every order has exactly one of these statuses at any time.
+ * Status is set initially at import (`inbox`) and transitions through
+ * the dispatch lifecycle. TrackLens manages this — it's never written
+ * back to InvoLens.
+ */
+
+const STATUS_DEFS = {
+  inbox:     { label: 'Master Database',  short: 'Inbox',     color: '#888',     bg: '#f0f0f0',  next: ['planned', 'hold', 'cancel'] },
+  planned:   { label: 'Dispatch Today',   short: 'Planned',   color: '#1c5f95',  bg: '#eef5fa',  next: ['inbox', 'hold', 'cancel', 'packed'] },
+  hold:      { label: 'Hold',             short: 'Hold',      color: '#a16a0e',  bg: '#fbf0e2',  next: ['inbox', 'planned', 'cancel'] },
+  cancel:    { label: 'Cancelled',        short: 'Cancel',    color: '#a63333',  bg: '#fbeaea',  next: [] },  // terminal
+  packed:    { label: 'Packed',           short: 'Packed',    color: '#2d7d3a',  bg: '#e8f3ea',  next: ['planned', 'shipped', 'cancel'] },
+  shipped:   { label: 'Picked Up',        short: 'Shipped',   color: '#5b3aa6',  bg: '#ece5fa',  next: ['delivered', 'ndr', 'rto'] },
+  delivered: { label: 'Delivered',        short: 'Delivered', color: '#2d7d3a',  bg: '#e8f3ea',  next: [] },
+  ndr:       { label: 'NDR',              short: 'NDR',       color: '#c87914',  bg: '#fbf0e2',  next: ['shipped', 'rto', 'delivered'] },
+  rto:       { label: 'RTO',              short: 'RTO',       color: '#a63333',  bg: '#fbeaea',  next: [] }
+};
+
+const STATUS_KEYS = Object.keys(STATUS_DEFS);
+
+/* Returns true if `from → to` is a legal transition.
+ * CANCEL is allowed from any state EXCEPT terminal ones (delivered, rto, cancel itself).
+ */
+function isLegalStatusTransition(from, to){
+  if(from === to) return false;
+  // Terminal states have no transitions out
+  if(from === 'cancel' || from === 'delivered' || from === 'rto') return false;
+  if(to === 'cancel') return true;  // cancel allowed from any non-terminal state
+  const def = STATUS_DEFS[from];
+  return !!(def && def.next.includes(to));
+}
+
+/* Display name for a status — uses Adi's terminology. */
+function statusLabel(status){
+  return (STATUS_DEFS[status] && STATUS_DEFS[status].label) || status;
+}
+
+/* Apply a status change to an order. Validates transition, appends history,
+ * sets timestamps, persists. Returns true on success.
+ *
+ * options:
+ *   - dispatchDate: required when transitioning to 'planned'
+ *   - by: optional source ('manual' | 'auto' | 'courier-api')
+ *   - reason: optional reason string
+ *   - force: skip transition validation (for migration / admin override)
+ */
+function setOrderStatus(invoiceId, newStatus, options = {}){
+  const inv = State.invoices.find(r => r.id === invoiceId);
+  if(!inv) throw new Error(`Order ${invoiceId} not found`);
+  if(!STATUS_DEFS[newStatus]) throw new Error(`Unknown status: ${newStatus}`);
+
+  const oldStatus = inv.status || 'inbox';
+  if(!options.force && !isLegalStatusTransition(oldStatus, newStatus)){
+    throw new Error(`Cannot transition from ${statusLabel(oldStatus)} to ${statusLabel(newStatus)}`);
+  }
+
+  // Required fields for specific statuses
+  if(newStatus === 'planned'){
+    if(!options.dispatchDate){
+      throw new Error('A dispatch date is required when planning an order');
+    }
+    inv.dispatchDate = options.dispatchDate;
+  }
+
+  // Auto-set dispatchDate cleanup
+  if(newStatus === 'inbox' || newStatus === 'cancel' || newStatus === 'hold'){
+    // Going back to inbox or putting on hold: keep dispatchDate as a hint, but it's not active.
+    // Cancel: keep dispatchDate for audit.
+  }
+
+  // Auto-timestamps
+  const now = new Date().toISOString();
+  if(newStatus === 'packed') inv.packedAt = now;
+  if(newStatus === 'shipped') inv.shippedAt = now;
+  if(newStatus === 'delivered') inv.deliveredAt = now;
+
+  // Append audit log
+  if(!Array.isArray(inv.statusHistory)) inv.statusHistory = [];
+  inv.statusHistory.push({
+    from: oldStatus,
+    to: newStatus,
+    at: now,
+    by: options.by || 'manual',
+    reason: options.reason || null,
+    dispatchDate: inv.dispatchDate || null
+  });
+
+  inv.status = newStatus;
+  persistLocal();
+  // Drive write is fire-and-forget
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_orders.json', State.invoices)
+      .catch(e => console.warn('Drive write failed', e));
+  }
+  return true;
+}
+
+/* Bulk version — apply same status to many orders. Errors collected; non-blocking. */
+function setOrderStatusBulk(invoiceIds, newStatus, options = {}){
+  const errors = [];
+  let count = 0;
+  invoiceIds.forEach(id => {
+    try{
+      setOrderStatus(id, newStatus, options);
+      count++;
+    } catch(err){
+      errors.push({ id, error: err.message });
+    }
+  });
+  return { count, errors };
+}
+
+/* Plan a single order for a specific dispatch date. Wraps setOrderStatus with planned + date. */
+function planOrderForDate(invoiceId, dispatchDate, options = {}){
+  return setOrderStatus(invoiceId, 'planned', Object.assign({}, options, { dispatchDate }));
+}
+
+/* Migration — for orders that existed before v1.2, infer their status from
+ * legacy state (State.dispatched map from v1.1.x). Run once on app load.
+ */
+function migrateLegacyStatuses(){
+  if(!State.invoices || State.invoices.length === 0) return;
+  let migrated = 0;
+  State.invoices.forEach(inv => {
+    if(inv.status && STATUS_DEFS[inv.status]) return;  // already has a valid status
+    // Infer from v1.1.x dispatched map
+    if(State.dispatched && State.dispatched[inv.id]){
+      inv.status = 'packed';
+      inv.packedAt = State.dispatched[inv.id].dispatchedAt || new Date().toISOString();
+      inv.dispatchDate = (inv.packedAt || '').slice(0, 10);
+    } else {
+      inv.status = 'inbox';
+    }
+    inv.statusHistory = inv.statusHistory || [];
+    inv.dispatchDate = inv.dispatchDate || null;
+    migrated++;
+  });
+  if(migrated > 0){
+    console.log(`[TrackLens] Migrated ${migrated} orders to v1.2 status model`);
+    persistLocal();
+  }
+}
+
+/* Suggested dispatch date for an order — based on promise date and zone transit.
+ * If promise date exists: latest_safe_date = promise - transit. We dispatch on or before that.
+ * If no promise: today (default to "ship soon").
+ *
+ * Returns { date: 'YYYY-MM-DD', reason: 'string' }.
+ */
+function suggestDispatchDate(row){
+  const today = new Date().toISOString().slice(0, 10);
+  const transitDays = getTransitDaysFromState(row.state);
+  const promise = row.promisedDeliveryDate;
+  if(!promise){
+    return { date: today, reason: `no promise date — default today (transit ${transitDays}d)` };
+  }
+  // Latest safe ship date = promise - transit
+  const promiseD = new Date(promise);
+  promiseD.setDate(promiseD.getDate() - transitDays);
+  const safeStr = promiseD.toISOString().slice(0, 10);
+  if(safeStr < today){
+    return { date: today, reason: `promise ${promise} is tight or past — ship ASAP` };
+  }
+  return { date: safeStr, reason: `promise ${promise}, transit ${transitDays}d → ship by ${safeStr}` };
+}
+
+/* ============================================================
+ * v1.2 — Inbox tab (Master Database)
+ * ============================================================
+ *
+ * Read-only data view of all orders. Filter by status. Per-row status
+ * change actions. No bulk dispatch — that lives in Plan / Pack & Ship.
+ */
+
+// Statuses visible in the Inbox tab. Terminal/late-stage ones (shipped/delivered/etc)
+// belong in Track tab and are hidden here by default.
+const INBOX_VISIBLE_STATUSES = ['inbox', 'planned', 'hold', 'cancel', 'packed'];
+
+// Inbox-specific state
+if(!State.inbox) State.inbox = {
+  selectedStatuses: new Set(['inbox', 'planned', 'hold']),  // default visible
+  search: ''
+};
+
+function renderInbox(){
+  const allRows = (State.invoices || []).map(applyAwbOverride);
+  const total = allRows.length;
+  const setText = (sel, val) => { const el = $(sel); if(el) el.textContent = val; };
+
+  setText('#inboxCount', total);
+
+  if(total === 0){
+    const empty = $('#inboxEmpty'); if(empty) empty.style.display = 'block';
+    const cnt = $('#inboxContent'); if(cnt) cnt.style.display = 'none';
+    setText('#inboxTotal', '0');
+    setText('#inboxNew', '0');
+    setText('#inboxPlanned', '0');
+    setText('#inboxHold', '0');
+    return;
+  }
+  const empty = $('#inboxEmpty'); if(empty) empty.style.display = 'none';
+  const cnt = $('#inboxContent'); if(cnt) cnt.style.display = 'block';
+
+  // Stat cards
+  const counts = {};
+  STATUS_KEYS.forEach(k => counts[k] = 0);
+  allRows.forEach(r => { counts[r.status || 'inbox']++; });
+  setText('#inboxTotal', total);
+  setText('#inboxNew', counts.inbox || 0);
+  setText('#inboxPlanned', counts.planned || 0);
+  setText('#inboxHold', counts.hold || 0);
+
+  // Render status filter chips
+  renderInboxStatusChips(counts);
+
+  // Filter rows
+  const filtered = filterInboxRows(allRows);
+  setText('#inboxQueueCount', `${filtered.length} of ${total}`);
+
+  // Render rows
+  const tbody = $('#inboxTbody');
+  if(tbody){
+    tbody.innerHTML = '';
+    if(filtered.length === 0){
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--ink-3);padding:40px">No orders match these filters.</td></tr>`;
+    } else {
+      filtered.forEach(r => tbody.appendChild(renderInboxRow(r)));
+    }
+  }
+
+  // Drive source indicator
+  renderInboxDriveSourceIndicator();
+}
+
+function filterInboxRows(rows){
+  const sel = State.inbox.selectedStatuses;
+  const q = (State.inbox.search || '').toLowerCase().trim();
+  return rows.filter(r => {
+    const s = r.status || 'inbox';
+    if(sel.size > 0 && !sel.has(s)) return false;
+    if(q){
+      const hay = `${r.invoiceNo} ${r.orderId} ${r.awb} ${r.customerName} ${r.sku} ${r.pincode}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderInboxStatusChips(counts){
+  const container = $('#inboxStatusChips');
+  if(!container) return;
+  // Show only the inbox-visible statuses + cancel
+  const visibleStatuses = ['inbox', 'planned', 'hold', 'cancel', 'packed'];
+  container.innerHTML = visibleStatuses.map(s => {
+    const def = STATUS_DEFS[s];
+    const selected = State.inbox.selectedStatuses.has(s);
+    const cnt = counts[s] || 0;
+    return `<span class="status-chip ${selected ? 'selected' : ''}" data-status="${s}">
+      <span class="sdot" style="width:8px;height:8px;border-radius:50%;background:${def.color}"></span>
+      ${escapeHtml(def.label)}
+      <span class="scnt">${cnt}</span>
+    </span>`;
+  }).join('');
+  container.querySelectorAll('.status-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const s = chip.dataset.status;
+      if(State.inbox.selectedStatuses.has(s)){
+        State.inbox.selectedStatuses.delete(s);
+      } else {
+        State.inbox.selectedStatuses.add(s);
+      }
+      renderInbox();
+    });
+  });
+}
+
+function renderInboxRow(r){
+  const tr = document.createElement('tr');
+  const status = r.status || 'inbox';
+  const def = STATUS_DEFS[status] || STATUS_DEFS.inbox;
+  const platformLabel = { amazon:'Amazon', flipkart:'Flipkart', d2c:'D2C', unknown:'?' }[r.platform];
+
+  // Status pill — shows label + dispatchDate if planned
+  let statusPill = `<span class="order-status" style="background:${def.bg};color:${def.color}">
+    <span class="sdot" style="background:${def.color}"></span>${escapeHtml(def.label)}`;
+  if(status === 'planned' && r.dispatchDate){
+    statusPill += ` <span style="opacity:.7;font-size:10px;margin-left:3px">${escapeHtml(fmtPlanDate(r.dispatchDate))}</span>`;
+  }
+  statusPill += `</span>`;
+
+  // AWB cell — same as Plan tab
+  let awbCell;
+  if(!r.awb){
+    awbCell = `<span style="color:var(--red)">missing</span>`;
+  } else if(!r.awbOk){
+    awbCell = `<span style="color:var(--red)" title="${escapeHtml(r.awbIssue || '')}">${escapeHtml(r.awb)} ⚠</span>`;
+  } else if(r._awbOverridden){
+    awbCell = `<span class="mono">${escapeHtml(r.awb)}</span> <span style="color:#7c5a14;font-size:10px">✎</span>`;
+  } else {
+    awbCell = `<span class="mono">${escapeHtml(r.awb)}</span>`;
+  }
+
+  tr.innerHTML = `
+    <td>${statusPill}</td>
+    <td class="mono">${escapeHtml(r.orderId || '—')}</td>
+    <td>${escapeHtml(r.invoiceDate || '—')}</td>
+    <td><span class="tag ${r.platform}">${platformLabel}</span></td>
+    <td><span class="mono" style="font-size:11px">${escapeHtml(r.sku || '—')}</span><div style="font-size:11px;color:var(--ink-3)" class="truncate">${escapeHtml(r.productName || '')}</div></td>
+    <td>${escapeHtml(r.customerName || '—')}</td>
+    <td class="mono">${escapeHtml(r.pincode || '—')}</td>
+    <td class="mono" style="font-size:12px">${awbCell}</td>
+    <td>${r.courier ? escapeHtml(COURIER_BY_KEY[r.courier]?.label || r.courier) : '<span style="color:var(--ink-3)">—</span>'}</td>
+    <td>
+      <button class="status-action-btn" data-status-menu="${escapeHtml(r.id)}" title="Change status (or right-click)">⋯</button>
+    </td>
+  `;
+
+  // Right-click context menu on whole row
+  tr.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openStatusMenu(r.id, e.clientX, e.clientY);
+  });
+
+  // Status menu button
+  const btn = tr.querySelector('[data-status-menu]');
+  if(btn){
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const rect = btn.getBoundingClientRect();
+      openStatusMenu(r.id, rect.right, rect.bottom);
+    });
+  }
+
+  return tr;
+}
+
+function renderInboxDriveSourceIndicator(){
+  const indicator = $('#inboxDriveSourceIndicator');
+  if(!indicator) return;
+  const lm = State.settings.involens?.lastModifiedTime;
+  const lf = State.settings.involens?.lastFetchedAt;
+  if(!lm && !lf){
+    indicator.style.display = 'none';
+    return;
+  }
+  indicator.style.display = '';
+  $('#inboxDriveSourceModified').textContent = lm ? `updated ${fmtRelative(lm)}` : 'unknown';
+  $('#inboxDriveSourceFetched').textContent = lf ? fmtRelative(lf) : 'never';
+}
+
+/* Context menu for status changes. Pops up at (x, y) screen coords.
+ * Shows legal transitions for the order's current status.
+ */
+function openStatusMenu(invoiceId, x, y){
+  closeStatusMenu();
+  const inv = State.invoices.find(r => r.id === invoiceId);
+  if(!inv) return;
+  const currentStatus = inv.status || 'inbox';
+  const def = STATUS_DEFS[currentStatus];
+  if(!def) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu';
+  menu.id = 'statusCtxMenu';
+
+  // Header showing current status
+  let html = `<div class="ctx-header">${escapeHtml(inv.orderId || invoiceId)} · ${escapeHtml(def.label)}</div>`;
+
+  // Per-status transitions
+  const transitions = [];
+  STATUS_KEYS.forEach(s => {
+    if(isLegalStatusTransition(currentStatus, s)){
+      transitions.push(s);
+    }
+  });
+
+  if(transitions.length === 0){
+    html += `<div class="ctx-item disabled">No actions available</div>`;
+  } else {
+    transitions.forEach(s => {
+      const sdef = STATUS_DEFS[s];
+      const action = statusActionLabel(currentStatus, s);
+      html += `<div class="ctx-item" data-action="set-status" data-status="${s}">
+        <span class="sdot" style="width:8px;height:8px;border-radius:50%;background:${sdef.color}"></span>
+        ${escapeHtml(action)}
+      </div>`;
+    });
+  }
+
+  // Always offer "Edit AWB" if applicable
+  if(!inv.awb || !inv.awbOk || State.awbOverrides[inv.id]){
+    html += `<div class="ctx-divider"></div>
+      <div class="ctx-item" data-action="edit-awb">
+        ✎ Edit AWB
+      </div>`;
+  }
+
+  menu.innerHTML = html;
+  document.body.appendChild(menu);
+
+  // Position (clamp to viewport)
+  const menuRect = { width: 200, height: menu.offsetHeight };
+  const winW = window.innerWidth, winH = window.innerHeight;
+  const px = Math.min(x, winW - menuRect.width - 10);
+  const py = Math.min(y, winH - menuRect.height - 10);
+  menu.style.left = `${px}px`;
+  menu.style.top = `${py}px`;
+
+  // Click handlers
+  menu.addEventListener('click', (e) => {
+    const item = e.target.closest('.ctx-item');
+    if(!item) return;
+    const action = item.dataset.action;
+    if(action === 'set-status'){
+      handleStatusChange(invoiceId, item.dataset.status);
+    } else if(action === 'edit-awb'){
+      openAwbEditor(invoiceId);
+    }
+    closeStatusMenu();
+  });
+
+  // Click-outside to close
+  setTimeout(() => {
+    document.addEventListener('click', closeStatusMenu, { once: true });
+  }, 0);
+}
+
+function closeStatusMenu(){
+  const m = document.getElementById('statusCtxMenu');
+  if(m) m.remove();
+}
+
+/* Phrasing helper — "Move to Hold" vs "Plan for date" vs "Cancel order" etc. */
+function statusActionLabel(from, to){
+  if(to === 'planned') return 'Plan for date…';
+  if(to === 'hold')    return 'Put on Hold';
+  if(to === 'cancel')  return 'Cancel order';
+  if(to === 'inbox')   return 'Return to Master DB';
+  if(to === 'packed')  return 'Mark as Packed';
+  if(to === 'shipped') return 'Mark as Picked Up';
+  return `Move to ${STATUS_DEFS[to].label}`;
+}
+
+/* Handle a status change from the menu. Some transitions need extra info (e.g., date for planned). */
+function handleStatusChange(invoiceId, newStatus){
+  const inv = State.invoices.find(r => r.id === invoiceId);
+  if(!inv) return;
+
+  let options = {};
+
+  if(newStatus === 'planned'){
+    // Suggest a date based on promise + transit
+    const suggested = suggestDispatchDate(inv);
+    const date = window.prompt(
+      `Plan dispatch for which date?\n\n` +
+      `Order: ${inv.orderId}\n` +
+      `Customer: ${inv.customerName}\n` +
+      `Promise: ${inv.promisedDeliveryDate || 'not set'}\n\n` +
+      `Suggested: ${suggested.date}\n(${suggested.reason})\n\n` +
+      `Enter date as YYYY-MM-DD:`,
+      suggested.date
+    );
+    if(!date) return;
+    options.dispatchDate = date.trim();
+  }
+
+  if(newStatus === 'cancel' || newStatus === 'hold'){
+    const reason = window.prompt(`Reason for ${statusLabel(newStatus)}? (optional)`, '');
+    if(reason === null) return;  // user cancelled the prompt
+    options.reason = reason || null;
+  }
+
+  try{
+    setOrderStatus(invoiceId, newStatus, options);
+    toast(`Order moved to ${statusLabel(newStatus)}`, 'success', 2500);
+    renderInbox();
+    if(typeof renderDispatch === 'function') renderDispatch();
+  } catch(err){
+    toast(err.message, 'error', 4000);
+  }
+}
+
+function bindInboxFilters(){
+  const search = $('#inboxSearchBox');
+  if(search) search.addEventListener('input', e => {
+    State.inbox.search = e.target.value;
+    renderInbox();
+  });
+  const refreshBtn = $('#inboxRefreshBtn');
+  if(refreshBtn) refreshBtn.addEventListener('click', () => fetchInvolensFromDrive({ silent: false, force: true }));
+  const reimportBtn = $('#inboxReimportBtn');
+  if(reimportBtn) reimportBtn.addEventListener('click', openImportModal);
+}
+
 function normalizeInvoLensRecord(r){
   const platform = inferPlatform(r.order_id);
   // InvoLens may add `courier` field starting tomorrow; respect it if present.
@@ -2259,6 +2985,16 @@ function normalizeInvoLensRecord(r){
       filename: r.pdf_filename || '',
       web_link: r.pdf_web_link || ''
     } : null),
+    // v1.2 — Status spine. Defaults set at import; preserved across refreshes.
+    status: 'inbox',                  // see STATUS_DEFS below
+    dispatchDate: null,               // YYYY-MM-DD when planned/packed
+    statusHistory: [],                // append-only audit log
+    packedAt: null,
+    shippedAt: null,
+    deliveredAt: null,
+    pickedQty: null,                  // v1.3 picker feedback
+    notAvailableReason: null,         // v1.3 picker feedback
+    shippedBarcodes: [],              // populated by external inventory system
     raw: r
   };
 }
@@ -2275,13 +3011,40 @@ function importInvoLensJSON(text, filename, opts = {}){
     toast('Expected an array of invoices', 'error');
     return;
   }
-  State.invoices = data.map(normalizeInvoLensRecord);
+  // Preserve TrackLens-managed fields (status, dispatchDate, history, timestamps) across refreshes.
+  // InvoLens is the source of truth for invoice content, but TrackLens owns the dispatch lifecycle.
+  const existingById = {};
+  (State.invoices || []).forEach(r => { existingById[r.id] = r; });
+  State.invoices = data.map(normalizeInvoLensRecord).map(fresh => {
+    const existing = existingById[fresh.id];
+    if(!existing) return fresh;  // brand new order — defaults from normalize stand
+    // Copy TrackLens-managed lifecycle fields from existing record
+    return Object.assign({}, fresh, {
+      status: existing.status || fresh.status,
+      dispatchDate: existing.dispatchDate || fresh.dispatchDate,
+      statusHistory: existing.statusHistory || [],
+      packedAt: existing.packedAt || null,
+      shippedAt: existing.shippedAt || null,
+      deliveredAt: existing.deliveredAt || null,
+      pickedQty: existing.pickedQty,
+      notAvailableReason: existing.notAvailableReason,
+      shippedBarcodes: existing.shippedBarcodes || [],
+      // Preserve courier override if user set it (InvoLens may not have it yet)
+      courier: existing.courier || fresh.courier,
+      // Preserve cargo fetch state
+      lastFetchedAt: existing.lastFetchedAt,
+      cargoShipmentId: existing.cargoShipmentId,
+      lastLabelSizeBytes: existing.lastLabelSizeBytes
+    });
+  });
   State.meta.importedAt = new Date().toISOString();
   State.meta.importFilename = filename || 'involens_invoices.json';
   State.selected.clear();
   reconcileAwbOverrides();
+  migrateLegacyStatuses();   // ensure any new arrivals get their inbox default
   persistLocal();
   renderDispatch();
+  if(typeof renderInbox === 'function') renderInbox();
   closeImportModal();
   renderDriveSourceIndicator();
 
@@ -2420,27 +3183,35 @@ function showAwbCorruptionBanner(corruptedRows){
 
 /* ------------------- Render dispatch ------------------- */
 function renderDispatch(){
+  const setText = (sel, val) => { const el = $(sel); if(el) el.textContent = val; };
+  const setStyle = (sel, prop, val) => { const el = $(sel); if(el) el.style[prop] = val; };
+
   // Apply overrides at the entry point so all downstream code sees the
   // effective AWB (and corrected awbOk/awbIssue). This is read-only — never
   // mutates State.invoices.
-  const allRows = State.invoices.map(applyAwbOverride);
+  const allRows = (State.invoices || []).map(applyAwbOverride);
   const total = allRows.length;
-  $('#dispatchCount').textContent = total;
-  $('#queueCount').textContent = total + ' orders';
+  // v1.2: Plan tab badge shows count of orders that need planning (inbox + planned)
+  const planRelevant = allRows.filter(r => {
+    const s = r.status || 'inbox';
+    return s === 'inbox' || s === 'planned';
+  }).length;
+  setText('#planCount', planRelevant);
+  setText('#queueCount', total + ' orders');
 
   if(total === 0){
-    $('#dispatchEmpty').style.display = 'block';
-    $('#dispatchContent').style.display = 'none';
-    $('#kpiPending').textContent = '0';
-    $('#kpiUntagged').textContent = '0';
-    $('#kpiMissingAwb').textContent = '0';
-    $('#kpiLastSync').textContent = '—';
-    $('#kpiLastSyncSub').textContent = 'no data yet';
+    setStyle('#dispatchEmpty', 'display', 'block');
+    setStyle('#dispatchContent', 'display', 'none');
+    setText('#kpiPending', '0');
+    setText('#kpiUntagged', '0');
+    setText('#kpiMissingAwb', '0');
+    setText('#kpiLastSync', '—');
+    setText('#kpiLastSyncSub', 'no data yet');
     return;
   }
 
-  $('#dispatchEmpty').style.display = 'none';
-  $('#dispatchContent').style.display = 'block';
+  setStyle('#dispatchEmpty', 'display', 'none');
+  setStyle('#dispatchContent', 'display', 'block');
 
   // v1.1.3 — Compute urgency for every row, against current planning date
   const planDate = State.planning.planDate || new Date().toISOString().slice(0, 10);
@@ -2453,17 +3224,17 @@ function renderDispatch(){
   // Update urgency bar counts
   const buckets = { critical:0, high:0, medium:0, low:0 };
   allRows.forEach(r => { if(buckets[r._urgency.bucket] != null) buckets[r._urgency.bucket]++; });
-  $('#ub-critical').textContent = buckets.critical;
-  $('#ub-high').textContent = buckets.high;
-  $('#ub-medium').textContent = buckets.medium;
-  $('#ub-low').textContent = buckets.low;
+  setText('#ub-critical', buckets.critical);
+  setText('#ub-high', buckets.high);
+  setText('#ub-medium', buckets.medium);
+  setText('#ub-low', buckets.low);
 
   // Plan context tooltip
   const today = new Date().toISOString().slice(0, 10);
   const ctxText = planDate === today
     ? 'Planning for today'
     : `Planning for ${fmtPlanDate(planDate)}`;
-  $('#ubPlanContext').textContent = ctxText;
+  setText('#ubPlanContext', ctxText);
 
   // Highlight selected urgency filter chip
   document.querySelectorAll('.ub-chip').forEach(chip => {
@@ -2477,23 +3248,22 @@ function renderDispatch(){
   const bluedartTagged = allRows.filter(r => r.courier === 'bluedart').length;
   const delhiveryTagged = allRows.filter(r => r.courier === 'delhivery_direct' || r.courier === 'delhivery').length;
   const labelsFetched = allRows.filter(r => r.lastFetchedAt).length;
-  // "Ready" overall = anything tagged + good AWB
   const ready = allRows.filter(r => r.awb && r.awbOk && r.courier).length;
 
-  $('#kpiPending').textContent = cargoReady;
-  $('#kpiPendingSub').textContent = `BD: ${bluedartTagged}  ·  DL: ${delhiveryTagged}  ·  fetched: ${labelsFetched}`;
-  $('#kpiUntagged').textContent = untagged;
-  $('#kpiMissingAwb').textContent = missingAwb + corruptedAwb;
+  setText('#kpiPending', cargoReady);
+  setText('#kpiPendingSub', `BD: ${bluedartTagged}  ·  DL: ${delhiveryTagged}  ·  fetched: ${labelsFetched}`);
+  setText('#kpiUntagged', untagged);
+  setText('#kpiMissingAwb', missingAwb + corruptedAwb);
 
   if(State.meta.importedAt){
-    $('#kpiLastSync').textContent = fmtRelative(State.meta.importedAt);
-    $('#kpiLastSyncSub').textContent = State.meta.importFilename || '';
+    setText('#kpiLastSync', fmtRelative(State.meta.importedAt));
+    setText('#kpiLastSyncSub', State.meta.importFilename || '');
   }
 
-  $('#fc-all').textContent = total;
-  $('#fc-ready').textContent = ready;
-  $('#fc-untagged').textContent = untagged;
-  $('#fc-missing').textContent = missingAwb + corruptedAwb;
+  setText('#fc-all', total);
+  setText('#fc-ready', ready);
+  setText('#fc-untagged', untagged);
+  setText('#fc-missing', missingAwb + corruptedAwb);
 
   const filtered = filterRowsWithUrgency(allRows);
 
@@ -4107,8 +4877,11 @@ function bindTabs(){
       t.classList.add('active');
       const panel = $('#panel-' + t.dataset.panel);
       if(panel) panel.classList.add('active');
-      // Render-on-show for the batch tab — keeps it cheap when not visible
-      if(t.dataset.panel === 'batch') renderBatch();
+      // Render-on-show
+      const p = t.dataset.panel;
+      if(p === 'inbox') renderInbox();
+      else if(p === 'plan' && typeof renderDispatch === 'function') renderDispatch();
+      else if(p === 'pack' && typeof renderBatch === 'function') renderBatch();
     });
   });
 }
@@ -4189,8 +4962,8 @@ function bindFilters(){
     // Switch tabs
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
-    document.querySelector('[data-panel="batch"]').classList.add('active');
-    document.querySelector('#panel-batch').classList.add('active');
+    document.querySelector('[data-panel="pack"]').classList.add('active');
+    document.querySelector('#panel-pack').classList.add('active');
     if(typeof renderBatch === 'function') renderBatch();
     toast(`${State.selected.size} orders sent to Dispatch tab`, 'success', 3000);
   });
@@ -4537,7 +5310,8 @@ function renderDriveStatus(){
 function init(){
   bindTabs();
   bindFilters();
-  bindBatchFilters();          // v1.1.2 — Dispatch tab
+  bindBatchFilters();          // v1.1.2 — Pack & Ship tab
+  bindInboxFilters();          // v1.2 — Inbox tab
   bindImport();
   bindSettings();
 
@@ -4578,17 +5352,19 @@ function init(){
     // Switch to the Dispatch tab
     $$('.tab').forEach(x => x.classList.remove('active'));
     $$('.panel').forEach(x => x.classList.remove('active'));
-    document.querySelector('[data-panel="batch"]').classList.add('active');
-    $('#panel-batch').classList.add('active');
+    document.querySelector('[data-panel="pack"]').classList.add('active');
+    $('#panel-pack').classList.add('active');
     renderBatch();
   });
 
   restoreLocal();
+  migrateLegacyStatuses();   // v1.2 — bring v1.1.x data into v1.2 status model
   applySettingsToInputs();
   // If we already have a cached cargo verification, show it
   if(State.tokens.cargo){
     renderCargoAuthResult({ ok: true, token: State.tokens.cargo });
   }
+  renderInbox();
   renderDispatch();
   renderDriveStatus();
   renderDriveSourceIndicator();
