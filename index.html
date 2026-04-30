@@ -1924,6 +1924,20 @@
           <h3>Transit Times</h3>
           <p class="desc">Average transit time per state from your warehouse (Kalyan, MH). Used to compute "days left to dispatch" on the Plan tab. Falls back to built-in defaults if not configured.</p>
 
+          <div class="field-group" style="background:var(--cream);padding:14px;border-radius:8px;border:1px solid var(--line)">
+            <label>Buffer days <span style="color:var(--ink-3);text-transform:none;letter-spacing:0">(global cushion added to every transit lookup)</span></label>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+              <input type="number" id="transitBufferInput" min="0" max="10" step="1" value="0" style="width:80px;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--ink);background:#fff" />
+              <span style="color:var(--ink-2)">days</span>
+              <button class="btn sm" id="transitBufferSaveBtn" style="margin-left:8px">Save buffer</button>
+              <span id="transitBufferResult" class="mono" style="font-size:11.5px;color:var(--ink-3);margin-left:8px"></span>
+            </div>
+            <div style="margin-top:8px;font-size:11px;color:var(--ink-3);line-height:1.6">
+              Set this to add a safety margin against optimistic courier estimates. Buffer is added to <strong>all</strong> lookup results (pincode-specific, state-wise, and default).<br>
+              Example: pincode says 3d, buffer = 1 → TrackLens uses 4d. Set 0 for raw values.
+            </div>
+          </div>
+
           <div class="field-group">
             <label>Upload transit time table <span style="color:var(--ink-3);text-transform:none;letter-spacing:0">(CSV: state,days — one row per state)</span></label>
             <textarea id="transitCsvInput" rows="14" class="mono" placeholder="MH,2&#10;Maharashtra,2&#10;GJ,3&#10;Gujarat,3&#10;KA,3&#10;Karnataka,3&#10;TN,3&#10;DL,4&#10;UP,4&#10;..." style="width:100%;font-family:'JetBrains Mono',monospace;font-size:12px;border:1px solid var(--line);border-radius:6px;padding:10px;color:var(--ink);background:#fff"></textarea>
@@ -2071,7 +2085,8 @@ const State = {
     // v1.2 — User-uploaded transit time overrides per state (or 2-letter code).
     // Falls back to ZONE_TRANSIT_DAYS defaults if a state isn't found here.
     transitOverrides: {},        // state-wise: { 'MH': 2, 'GJ': 3, 'Karnataka': 3, ... }
-    pincodeTransitOverrides: {}  // pincode-wise: { '400001': 1, '110001': 4, ... } — preferred source
+    pincodeTransitOverrides: {}, // pincode-wise: { '400001': 1, '110001': 4, ... } — preferred source
+    transitBufferDays: 0         // global buffer added to every transit lookup result
   },
   // Auth state — for Cargo, tokens come directly from the user (panel-generated)
   // and we just verify by hitting an authenticated endpoint. No login flow needed.
@@ -2257,36 +2272,59 @@ const ZONE_TRANSIT_DAYS = {
  *   2. State-specific (uploaded by user OR built-in default)
  *   3. Built-in fallback (4 days for unknown)
  *
- * Returns { days, source } where source is:
- *   'pincode' | 'state-user' | 'state-default' | 'default'
+ * A global buffer (State.settings.transitBufferDays) is added to the result
+ * to give a safety margin against optimistic courier estimates.
+ *
+ * Returns { days, baseDays, buffer, source, sourceLabel } where:
+ *   days = baseDays + buffer (what callers should use)
+ *   baseDays = raw value from lookup table
+ *   buffer = global buffer applied
+ *   source = 'pincode' | 'state-user' | 'state-default' | 'default'
  */
 function resolveTransitDays(state, pincode){
+  const buffer = Math.max(0, parseInt(State.settings?.transitBufferDays || 0, 10));
+  let baseDays = null, source = null, sourceLabel = null;
+
   // 1. Pincode-specific override
   const pincodeOverrides = State.settings?.pincodeTransitOverrides || {};
   const pcKey = String(pincode || '').trim();
   if(pcKey && pincodeOverrides[pcKey] != null){
-    return { days: pincodeOverrides[pcKey], source: 'pincode', sourceLabel: `pincode ${pcKey}` };
-  }
-  // 2. State-specific (user or default)
-  const userStateOverrides = State.settings?.transitOverrides || {};
-  const stateKey = String(state || '').trim();
-  if(stateKey && userStateOverrides[stateKey] != null){
-    return { days: userStateOverrides[stateKey], source: 'state-user', sourceLabel: `state ${stateKey}` };
-  }
-  if(stateKey){
-    const upper2 = stateKey.slice(0, 2).toUpperCase();
-    if(userStateOverrides[upper2] != null){
-      return { days: userStateOverrides[upper2], source: 'state-user', sourceLabel: `state ${upper2}` };
+    baseDays = pincodeOverrides[pcKey];
+    source = 'pincode';
+    sourceLabel = `pincode ${pcKey}`;
+  } else {
+    // 2. State-specific (user or default)
+    const userStateOverrides = State.settings?.transitOverrides || {};
+    const stateKey = String(state || '').trim();
+    if(stateKey && userStateOverrides[stateKey] != null){
+      baseDays = userStateOverrides[stateKey];
+      source = 'state-user';
+      sourceLabel = `state ${stateKey}`;
+    } else if(stateKey){
+      const upper2 = stateKey.slice(0, 2).toUpperCase();
+      if(userStateOverrides[upper2] != null){
+        baseDays = userStateOverrides[upper2];
+        source = 'state-user';
+        sourceLabel = `state ${upper2}`;
+      } else if(ZONE_TRANSIT_DAYS[stateKey] != null){
+        baseDays = ZONE_TRANSIT_DAYS[stateKey];
+        source = 'state-default';
+        sourceLabel = `state ${stateKey} (built-in default)`;
+      } else if(ZONE_TRANSIT_DAYS[upper2] != null){
+        baseDays = ZONE_TRANSIT_DAYS[upper2];
+        source = 'state-default';
+        sourceLabel = `state ${upper2} (built-in default)`;
+      }
     }
-    if(ZONE_TRANSIT_DAYS[stateKey] != null){
-      return { days: ZONE_TRANSIT_DAYS[stateKey], source: 'state-default', sourceLabel: `state ${stateKey} (built-in default)` };
-    }
-    if(ZONE_TRANSIT_DAYS[upper2] != null){
-      return { days: ZONE_TRANSIT_DAYS[upper2], source: 'state-default', sourceLabel: `state ${upper2} (built-in default)` };
+    // 3. Catch-all
+    if(baseDays == null){
+      baseDays = 4;
+      source = 'default';
+      sourceLabel = 'no data — using default 4d';
     }
   }
-  // 3. Catch-all default
-  return { days: 4, source: 'default', sourceLabel: 'no data — using default 4d' };
+
+  return { days: baseDays + buffer, baseDays, buffer, source, sourceLabel };
 }
 
 function getTransitDaysFromState(stateRaw, pincode){
@@ -2571,6 +2609,7 @@ function restoreLocal(){
   if(!State.settings.proxy) State.settings.proxy = { url: '' };
   if(!State.settings.transitOverrides || typeof State.settings.transitOverrides !== 'object') State.settings.transitOverrides = {};
   if(!State.settings.pincodeTransitOverrides || typeof State.settings.pincodeTransitOverrides !== 'object') State.settings.pincodeTransitOverrides = {};
+  if(typeof State.settings.transitBufferDays !== 'number' || State.settings.transitBufferDays < 0) State.settings.transitBufferDays = 0;
 }
 
 /* ------------------- InvoLens import ------------------- */
@@ -2948,6 +2987,13 @@ function bindTransitSettings(){
   if(defaults) defaults.addEventListener('click', loadTransitDefaultsToTextarea);
   const clear = $('#transitClearBtn');
   if(clear) clear.addEventListener('click', clearTransitOverrides);
+
+  // v1.2 — Buffer days
+  const bufferInput = $('#transitBufferInput');
+  if(bufferInput) bufferInput.value = State.settings.transitBufferDays || 0;
+  const bufferSave = $('#transitBufferSaveBtn');
+  if(bufferSave) bufferSave.addEventListener('click', saveTransitBuffer);
+
   // Show current state on load
   const overrides = State.settings.transitOverrides || {};
   if(Object.keys(overrides).length > 0){
@@ -2979,6 +3025,33 @@ function bindTransitSettings(){
     const ta = $('#pincodeCsvInput');
     if(ta) ta.value = lines.join('\n');
   }
+}
+
+function saveTransitBuffer(){
+  const input = $('#transitBufferInput');
+  const result = $('#transitBufferResult');
+  if(!input) return;
+  const raw = input.value.trim();
+  const buffer = parseInt(raw, 10);
+  if(isNaN(buffer) || buffer < 0 || buffer > 10){
+    if(result){
+      result.textContent = '✗ Must be 0–10';
+      result.style.color = 'var(--red)';
+    }
+    return;
+  }
+  State.settings.transitBufferDays = buffer;
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_settings.json', State.settings).catch(()=>{});
+  }
+  if(result){
+    result.textContent = buffer === 0 ? '✓ Saved (no buffer)' : `✓ Saved (+${buffer}d on every transit)`;
+    result.style.color = 'var(--green)';
+  }
+  // Re-render Plan tab so days-left + transit columns reflect the new buffer
+  if(typeof renderDispatch === 'function') renderDispatch();
+  renderPincodeCoverage();
 }
 
 /* ============================================================
@@ -3166,11 +3239,12 @@ function runPincodeLookup(){
 
   result.innerHTML = `
     <div style="font-size:14px;margin-bottom:8px"><strong>Pincode ${escapeHtml(pincode)}${state ? ' · ' + escapeHtml(state) : ''}</strong></div>
-    <div style="font-size:18px;color:${sourceColor};font-weight:600;margin-bottom:6px">${r.days} day${r.days===1?'':'s'} transit</div>
+    <div style="font-size:18px;color:${sourceColor};font-weight:600;margin-bottom:6px">${r.days} day${r.days===1?'':'s'} transit${r.buffer > 0 ? ` <span style="font-size:12px;color:var(--ink-3);font-weight:400">(${r.baseDays}d base + ${r.buffer}d buffer)</span>` : ''}</div>
     <div style="color:${sourceColor};margin-bottom:12px">Source: ${escapeHtml(sourceLabel)}</div>
     <div style="border-top:1px solid var(--line);padding-top:10px;margin-top:6px">
       <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:5px">Resolution chain</div>
       ${chainHtml}
+      ${r.buffer > 0 ? `<div style="color:var(--ink-3);margin-top:5px">+ Buffer: ${r.buffer}d (Settings → Transit Times)</div>` : ''}
     </div>
   `;
 }
@@ -4125,11 +4199,14 @@ function renderRow(r){
                      : dl.transitSource === 'state-user' ? 'var(--ink-2)'
                      : dl.transitSource === 'state-default' ? '#8a7510'
                      : '#a16a0e';
+  const bufferDays = State.settings?.transitBufferDays || 0;
+  const baseDays = dl.transitDays - bufferDays;
   const transitSourceTip = dl.transitSource === 'pincode' ? `Pincode-specific (${escapeHtml(r.pincode || '')})`
                          : dl.transitSource === 'state-user' ? `State-wise (your override)`
                          : dl.transitSource === 'state-default' ? `State-wise (built-in default)`
                          : `No data — using catch-all default`;
-  const transitTitle = `${transitSourceTip}. Configure in Settings → Transit Times.`;
+  const bufferTip = bufferDays > 0 ? ` · ${baseDays}d base + ${bufferDays}d buffer` : '';
+  const transitTitle = `${transitSourceTip}${bufferTip}. Configure in Settings → Transit Times.`;
   const transitMark = dl.transitSource === 'pincode' ? ''
                     : dl.transitSource === 'state-user' ? ''
                     : '<span style="margin-left:3px">⚠</span>';
