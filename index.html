@@ -1492,27 +1492,32 @@
         </div>
       </div>
 
-      <!-- Urgency stats row -->
+      <!-- Days-left stats row (v1.2 — replaces urgency engine) -->
       <div class="urgency-bar">
-        <div class="ub-chip critical" data-urgency="critical">
-          <span class="dot"></span>
-          <span class="lbl">Ship today</span>
-          <span class="cnt" id="ub-critical">0</span>
+        <div class="ub-chip dl-urgent" data-dlbucket="urgent">
+          <span class="dot" style="background:#a63333"></span>
+          <span class="lbl">Ship today (≤0)</span>
+          <span class="cnt" id="dl-urgent">0</span>
         </div>
-        <div class="ub-chip high" data-urgency="high">
-          <span class="dot"></span>
-          <span class="lbl">Should ship</span>
-          <span class="cnt" id="ub-high">0</span>
+        <div class="ub-chip dl-tight" data-dlbucket="tight">
+          <span class="dot" style="background:#c87914"></span>
+          <span class="lbl">Tight (1-2)</span>
+          <span class="cnt" id="dl-tight">0</span>
         </div>
-        <div class="ub-chip medium" data-urgency="medium">
-          <span class="dot"></span>
-          <span class="lbl">Buffer</span>
-          <span class="cnt" id="ub-medium">0</span>
+        <div class="ub-chip dl-medium" data-dlbucket="medium">
+          <span class="dot" style="background:#a18a14"></span>
+          <span class="lbl">Buffer (3-5)</span>
+          <span class="cnt" id="dl-medium">0</span>
         </div>
-        <div class="ub-chip low" data-urgency="low">
-          <span class="dot"></span>
-          <span class="lbl">Relaxed</span>
-          <span class="cnt" id="ub-low">0</span>
+        <div class="ub-chip dl-relaxed" data-dlbucket="relaxed">
+          <span class="dot" style="background:#888"></span>
+          <span class="lbl">Relaxed (6+)</span>
+          <span class="cnt" id="dl-relaxed">0</span>
+        </div>
+        <div class="ub-chip dl-unknown" data-dlbucket="unknown" title="Orders with no promise date — cannot compute days left">
+          <span class="dot" style="background:#bbb"></span>
+          <span class="lbl">No promise</span>
+          <span class="cnt" id="dl-unknown">0</span>
         </div>
         <div class="ub-spacer"></div>
         <div class="ub-meta" id="ubPlanContext">Planning for today</div>
@@ -1544,7 +1549,7 @@
           <thead>
             <tr>
               <th style="width:40px"><input type="checkbox" id="selectAll" /></th>
-              <th style="width:90px">Urgency</th>
+              <th style="width:90px" title="Days left until you must dispatch to meet promise date — promise minus transit time">Days Left</th>
               <th>Invoice</th>
               <th>Order ID</th>
               <th>Platform</th>
@@ -1733,6 +1738,7 @@
         <div class="settings-nav-item" data-section="messaging">Messaging</div>
         <div class="settings-nav-item" data-section="thresholds">Delay Thresholds</div>
         <div class="settings-nav-item" data-section="drive">Drive Sync</div>
+        <div class="settings-nav-item" data-section="transit">Transit Times</div>
         <div class="settings-nav-item" data-section="about">About</div>
       </aside>
 
@@ -1912,6 +1918,30 @@
           </div>
         </div>
 
+        <div class="settings-section" data-section="transit" style="display:none">
+          <h3>Transit Times</h3>
+          <p class="desc">Average transit time per state from your warehouse (Kalyan, MH). Used to compute "days left to dispatch" on the Plan tab. Falls back to built-in defaults if not configured.</p>
+
+          <div class="field-group">
+            <label>Upload transit time table <span style="color:var(--ink-3);text-transform:none;letter-spacing:0">(CSV: state,days — one row per state)</span></label>
+            <textarea id="transitCsvInput" rows="14" class="mono" placeholder="MH,2&#10;Maharashtra,2&#10;GJ,3&#10;Gujarat,3&#10;KA,3&#10;Karnataka,3&#10;TN,3&#10;DL,4&#10;UP,4&#10;..." style="width:100%;font-family:'JetBrains Mono',monospace;font-size:12px;border:1px solid var(--line);border-radius:6px;padding:10px;color:var(--ink);background:#fff"></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="btn sm" id="transitApplyBtn">Apply to TrackLens</button>
+              <button class="btn ghost sm" id="transitLoadDefaultsBtn">Load built-in defaults</button>
+              <button class="btn ghost sm" id="transitClearBtn" style="color:#a63333">Clear all</button>
+              <span id="transitApplyResult" class="mono" style="font-size:11.5px;color:var(--ink-3)"></span>
+            </div>
+            <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
+              Accepts state codes (MH, GJ) or full names (Maharashtra, Gujarat). Comments with <span class="mono">#</span> ignored.
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label>Currently configured</label>
+            <div id="transitTablePreview" style="background:var(--cream);padding:12px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.7;color:var(--ink-2);max-height:280px;overflow-y:auto"></div>
+          </div>
+        </div>
+
         <div class="settings-section" data-section="about" style="display:none">
           <h3>About TrackLens</h3>
           <p class="desc">Honey Touch shipment dispatch & SLA tracker. Reads orders from InvoLens, fetches shipping labels from courier APIs, monitors status, and triggers alerts.</p>
@@ -1998,7 +2028,10 @@ const State = {
       invoicesFolderId: '',      // Drive folder containing per-order invoice PDFs (e.g. "Invoices" inside InvoLens Data)
       lastFetchedAt: null,       // ISO string — when TrackLens last fetched the JSON
       lastModifiedTime: null     // ISO string — Drive's modifiedTime on the JSON file at last fetch
-    }
+    },
+    // v1.2 — User-uploaded transit time overrides per state (or 2-letter code).
+    // Falls back to ZONE_TRANSIT_DAYS defaults if a state isn't found here.
+    transitOverrides: {}         // { 'MH': 2, 'GJ': 3, 'Karnataka': 3, ... }
   },
   // Auth state — for Cargo, tokens come directly from the user (panel-generated)
   // and we just verify by hitting an authenticated endpoint. No login flow needed.
@@ -2182,13 +2215,72 @@ const ZONE_TRANSIT_DAYS = {
 function getTransitDaysFromState(stateRaw){
   if(!stateRaw) return 4;  // unknown — assume mid-range
   const s = String(stateRaw).trim();
-  if(ZONE_TRANSIT_DAYS[s] != null) return ZONE_TRANSIT_DAYS[s];
-  // Try uppercase 2-letter
+  // 1. User-uploaded overrides take priority (Settings → Transit Times)
+  const userOverrides = State.settings?.transitOverrides || {};
+  if(userOverrides[s] != null) return userOverrides[s];
   const upper2 = s.slice(0, 2).toUpperCase();
+  if(userOverrides[upper2] != null) return userOverrides[upper2];
+  // 2. Built-in defaults
+  if(ZONE_TRANSIT_DAYS[s] != null) return ZONE_TRANSIT_DAYS[s];
   if(ZONE_TRANSIT_DAYS[upper2] != null) return ZONE_TRANSIT_DAYS[upper2];
-  // Default: 4 (north-plain)
+  // 3. Default: 4 (north-plain)
   return 4;
 }
+
+/* Returns true if we have a transit-time entry (user or default) for this state. */
+function hasTransitDataForState(stateRaw){
+  if(!stateRaw) return false;
+  const s = String(stateRaw).trim();
+  const userOverrides = State.settings?.transitOverrides || {};
+  if(userOverrides[s] != null) return true;
+  const upper2 = s.slice(0, 2).toUpperCase();
+  if(userOverrides[upper2] != null) return true;
+  if(ZONE_TRANSIT_DAYS[s] != null) return true;
+  if(ZONE_TRANSIT_DAYS[upper2] != null) return true;
+  return false;
+}
+
+/* Compute days-left-to-dispatch for an order.
+ * Formula: (promise_date - today) - transit_days
+ *
+ * Returns { value, bucket, hasPromise, hasTransit, transitDays, latestShipDate }
+ *   value: integer (can be negative)
+ *   bucket: 'urgent' | 'tight' | 'medium' | 'relaxed' | 'unknown'
+ *   hasPromise: bool — was promise_date present in InvoLens?
+ *   hasTransit: bool — did we find transit data?
+ */
+function computeDaysLeft(row, today){
+  today = today || new Date().toISOString().slice(0, 10);
+  const transitDays = getTransitDaysFromState(row.state);
+  const hasTransit = hasTransitDataForState(row.state);
+  const promise = row.promisedDeliveryDate;
+  if(!promise){
+    return { value: null, bucket: 'unknown', hasPromise: false, hasTransit, transitDays, latestShipDate: null };
+  }
+  // daysToPromise = promise - today
+  const daysToPromise = daysBetween(today, promise);
+  const value = daysToPromise - transitDays;
+  // Latest safe ship date = promise - transit
+  const latestD = new Date(promise);
+  latestD.setDate(latestD.getDate() - transitDays);
+  const latestShipDate = latestD.toISOString().slice(0, 10);
+
+  let bucket;
+  if(value <= 0) bucket = 'urgent';
+  else if(value <= 2) bucket = 'tight';
+  else if(value <= 5) bucket = 'medium';
+  else bucket = 'relaxed';
+
+  return { value, bucket, hasPromise: true, hasTransit, transitDays, latestShipDate };
+}
+
+const DAYS_LEFT_LABELS = {
+  urgent:  { color: '#a63333', bg: '#fbeaea', label: 'Ship today' },
+  tight:   { color: '#c87914', bg: '#fbf0e2', label: 'Ship soon' },
+  medium:  { color: '#8a7510', bg: '#f9f3da', label: 'Buffer' },
+  relaxed: { color: '#666',    bg: '#f0f0f0', label: 'Relaxed' },
+  unknown: { color: '#888',    bg: '#f8f8f8', label: 'No promise' }
+};
 
 function daysBetween(d1, d2){
   // Returns whole days between YYYY-MM-DD strings (or Date objects). Ignores time.
@@ -2414,6 +2506,7 @@ function restoreLocal(){
   if(!State.settings.involens) State.settings.involens = { dataFolderId: '', invoicesFolderId: '', lastFetchedAt: null, lastModifiedTime: null };
   if(typeof State.settings.involens.dataFolderId !== 'string') State.settings.involens.dataFolderId = '';
   if(!State.settings.proxy) State.settings.proxy = { url: '' };
+  if(!State.settings.transitOverrides || typeof State.settings.transitOverrides !== 'object') State.settings.transitOverrides = {};
 }
 
 /* ------------------- InvoLens import ------------------- */
@@ -2591,6 +2684,154 @@ function migrateLegacyStatuses(){
  *
  * Returns { date: 'YYYY-MM-DD', reason: 'string' }.
  */
+/* ============================================================
+ * v1.2 — Transit time upload (Settings → Transit Times)
+ * ============================================================
+ *
+ * User uploads a CSV table mapping state → days. Stored in
+ * State.settings.transitOverrides. Used by getTransitDaysFromState
+ * with priority over built-in defaults.
+ */
+
+function parseTransitCsv(text){
+  const out = {};
+  const errors = [];
+  const lines = (text || '').split(/\r?\n/);
+  lines.forEach((line, i) => {
+    const trimmed = line.trim();
+    if(!trimmed || trimmed.startsWith('#')) return;
+    // Allow CSV or tab-separated
+    const parts = trimmed.split(/[,\t]/).map(s => s.trim()).filter(s => s.length > 0);
+    if(parts.length < 2){
+      errors.push(`Line ${i+1}: skipped (need state,days) — "${trimmed}"`);
+      return;
+    }
+    const state = parts[0];
+    const daysRaw = parts[1];
+    const days = parseFloat(daysRaw);
+    if(isNaN(days) || days < 0 || days > 30){
+      errors.push(`Line ${i+1}: invalid days "${daysRaw}" — must be 0–30`);
+      return;
+    }
+    out[state] = Math.round(days);
+  });
+  return { entries: out, errors };
+}
+
+function applyTransitCsv(){
+  const csv = $('#transitCsvInput').value;
+  const result = parseTransitCsv(csv);
+  const entries = result.entries;
+  const count = Object.keys(entries).length;
+
+  if(count === 0){
+    $('#transitApplyResult').textContent = '✗ No valid entries found';
+    $('#transitApplyResult').style.color = 'var(--red)';
+    return;
+  }
+
+  State.settings.transitOverrides = entries;
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_settings.json', State.settings).catch(()=>{});
+  }
+
+  let msg = `✓ Applied ${count} entries`;
+  if(result.errors.length){
+    msg += ` (${result.errors.length} skipped — see console)`;
+    console.warn('[TrackLens] Transit CSV parse warnings:', result.errors);
+  }
+  $('#transitApplyResult').textContent = msg;
+  $('#transitApplyResult').style.color = 'var(--green)';
+
+  renderTransitPreview();
+  // Re-render Plan tab so days-left updates
+  if(typeof renderDispatch === 'function') renderDispatch();
+}
+
+function loadTransitDefaultsToTextarea(){
+  // Build a CSV from ZONE_TRANSIT_DAYS, deduplicated to one entry per state
+  // (the table has both 2-letter codes and full names, we'll use full names).
+  const fullNames = ['MH','Maharashtra','GJ','Gujarat','KA','Karnataka','GA','Goa',
+                     'AP','Andhra Pradesh','TG','Telangana','TN','Tamil Nadu','KL','Kerala',
+                     'MP','Madhya Pradesh','DL','Delhi','HR','Haryana','RJ','Rajasthan',
+                     'UP','Uttar Pradesh','UK','Uttarakhand','CG','Chhattisgarh',
+                     'PB','Punjab','HP','Himachal Pradesh','JK','Jammu and Kashmir','LA','Ladakh',
+                     'WB','West Bengal','BR','Bihar','JH','Jharkhand','OD','Odisha',
+                     'AS','Assam','AR','Arunachal Pradesh','MN','Manipur','ML','Meghalaya',
+                     'MZ','Mizoram','NL','Nagaland','SK','Sikkim','TR','Tripura',
+                     'AN','Andaman and Nicobar Islands','LD','Lakshadweep',
+                     'CH','Chandigarh','PY','Puducherry'];
+  const lines = ['# state,days (Kalyan, MH warehouse defaults)', '# ----'];
+  const seen = new Set();
+  fullNames.forEach(s => {
+    const days = ZONE_TRANSIT_DAYS[s];
+    if(days != null){
+      const key = s.length <= 3 ? s : s;  // dedupe handled by `seen`
+      if(!seen.has(s)){
+        lines.push(`${s},${days}`);
+        seen.add(s);
+      }
+    }
+  });
+  $('#transitCsvInput').value = lines.join('\n');
+}
+
+function clearTransitOverrides(){
+  if(!confirm('Clear all transit time overrides? TrackLens will fall back to built-in defaults.')) return;
+  State.settings.transitOverrides = {};
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_settings.json', State.settings).catch(()=>{});
+  }
+  $('#transitCsvInput').value = '';
+  $('#transitApplyResult').textContent = '✓ Cleared';
+  $('#transitApplyResult').style.color = 'var(--ink-2)';
+  renderTransitPreview();
+  if(typeof renderDispatch === 'function') renderDispatch();
+}
+
+function renderTransitPreview(){
+  const container = $('#transitTablePreview');
+  if(!container) return;
+  const overrides = State.settings.transitOverrides || {};
+  const keys = Object.keys(overrides).sort();
+  if(keys.length === 0){
+    container.innerHTML = `<em style="color:var(--ink-3)">No overrides configured. Using built-in defaults (MH=2, GJ/KA/AP=3, north plain=4, hills/east=5, NE/islands=7).</em>`;
+    return;
+  }
+  // Group by transit-day value for readability
+  const byDays = {};
+  keys.forEach(k => {
+    const d = overrides[k];
+    if(!byDays[d]) byDays[d] = [];
+    byDays[d].push(k);
+  });
+  const sortedDays = Object.keys(byDays).map(n => parseInt(n,10)).sort((a,b)=>a-b);
+  const html = sortedDays.map(d => {
+    return `<div><strong>${d} day${d===1?'':'s'}:</strong> ${byDays[d].join(', ')}</div>`;
+  }).join('');
+  container.innerHTML = html;
+}
+
+function bindTransitSettings(){
+  const apply = $('#transitApplyBtn');
+  if(apply) apply.addEventListener('click', applyTransitCsv);
+  const defaults = $('#transitLoadDefaultsBtn');
+  if(defaults) defaults.addEventListener('click', loadTransitDefaultsToTextarea);
+  const clear = $('#transitClearBtn');
+  if(clear) clear.addEventListener('click', clearTransitOverrides);
+  // Show current state on load
+  const overrides = State.settings.transitOverrides || {};
+  if(Object.keys(overrides).length > 0){
+    // Reconstruct CSV from current overrides
+    const lines = Object.entries(overrides).sort().map(([s,d]) => `${s},${d}`);
+    const ta = $('#transitCsvInput');
+    if(ta) ta.value = lines.join('\n');
+  }
+  renderTransitPreview();
+}
+
 function suggestDispatchDate(row){
   const today = new Date().toISOString().slice(0, 10);
   const transitDays = getTransitDaysFromState(row.state);
@@ -3206,21 +3447,28 @@ function renderDispatch(){
   setStyle('#dispatchEmpty', 'display', 'none');
   setStyle('#dispatchContent', 'display', 'block');
 
-  // v1.1.3 — Compute urgency for every row, against current planning date
+  // v1.2 — Compute days-left for each row (replaces v1.1.3 urgency engine)
   const planDate = State.planning.planDate || new Date().toISOString().slice(0, 10);
   allRows.forEach(r => {
-    r._urgency = computeUrgency(r, planDate);
+    r._daysLeft = computeDaysLeft(r, planDate);
   });
-  // Sort by urgency score DESC (most urgent first)
-  allRows.sort((a, b) => (b._urgency.score || 0) - (a._urgency.score || 0));
+  // Sort: orders with promise date first (sorted ASC by days_left — most urgent first),
+  // then orders without promise date at the bottom.
+  allRows.sort((a, b) => {
+    const aHas = a._daysLeft.hasPromise, bHas = b._daysLeft.hasPromise;
+    if(aHas !== bHas) return aHas ? -1 : 1;
+    if(!aHas) return 0;  // both missing — keep original order
+    return a._daysLeft.value - b._daysLeft.value;
+  });
 
-  // Update urgency bar counts
-  const buckets = { critical:0, high:0, medium:0, low:0 };
-  allRows.forEach(r => { if(buckets[r._urgency.bucket] != null) buckets[r._urgency.bucket]++; });
-  setText('#ub-critical', buckets.critical);
-  setText('#ub-high', buckets.high);
-  setText('#ub-medium', buckets.medium);
-  setText('#ub-low', buckets.low);
+  // Update days-left bar counts
+  const dlBuckets = { urgent:0, tight:0, medium:0, relaxed:0, unknown:0 };
+  allRows.forEach(r => { if(dlBuckets[r._daysLeft.bucket] != null) dlBuckets[r._daysLeft.bucket]++; });
+  setText('#dl-urgent', dlBuckets.urgent);
+  setText('#dl-tight', dlBuckets.tight);
+  setText('#dl-medium', dlBuckets.medium);
+  setText('#dl-relaxed', dlBuckets.relaxed);
+  setText('#dl-unknown', dlBuckets.unknown);
 
   // Plan context tooltip
   const today = new Date().toISOString().slice(0, 10);
@@ -3229,9 +3477,9 @@ function renderDispatch(){
     : `Planning for ${fmtPlanDate(planDate)}`;
   setText('#ubPlanContext', ctxText);
 
-  // Highlight selected urgency filter chip
+  // Highlight selected days-left filter chip
   document.querySelectorAll('.ub-chip').forEach(chip => {
-    chip.classList.toggle('selected', chip.dataset.urgency === State.planning.urgencyFilter);
+    chip.classList.toggle('selected', chip.dataset.dlbucket === State.planning.urgencyFilter);
   });
 
   const untagged = allRows.filter(r => !r.courier).length;
@@ -3322,16 +3570,18 @@ function renderPicklist(rows){
     groups[sku].totalQty += (r.qty || 1);
   });
 
-  // Sort groups by max urgency score within the group (most urgent group first)
+  // Sort groups by lowest days-left within the group (most urgent group first).
+  // Orders without promise dates push their group to the bottom.
   const sortedGroups = Object.values(groups).sort((a, b) => {
-    const aMax = Math.max(...a.orders.map(o => o._urgency.score || 0));
-    const bMax = Math.max(...b.orders.map(o => o._urgency.score || 0));
-    return bMax - aMax;
+    const aMin = Math.min(...a.orders.map(o => (o._daysLeft?.hasPromise ? o._daysLeft.value : Infinity)));
+    const bMin = Math.min(...b.orders.map(o => (o._daysLeft?.hasPromise ? o._daysLeft.value : Infinity)));
+    return aMin - bMin;
   });
 
   // Plan summary
   const planDate = State.planning.planDate || new Date().toISOString().slice(0, 10);
-  $('#picklistSummary').innerHTML = `Plan for <strong>${escapeHtml(fmtPlanDate(planDate))}</strong> · <strong>${rows.length}</strong> orders · <strong>${sortedGroups.length}</strong> SKU${sortedGroups.length === 1 ? '' : 's'} · pick the items below from inventory in one trip.`;
+  const sumEl = $('#picklistSummary');
+  if(sumEl) sumEl.innerHTML = `Plan for <strong>${escapeHtml(fmtPlanDate(planDate))}</strong> · <strong>${rows.length}</strong> orders · <strong>${sortedGroups.length}</strong> SKU${sortedGroups.length === 1 ? '' : 's'} · pick the items below from inventory in one trip.`;
 
   container.innerHTML = sortedGroups.map(g => renderPicklistGroup(g)).join('');
 
@@ -3352,16 +3602,20 @@ function renderPicklist(rows){
 
 function renderPicklistGroup(g){
   const ordersHtml = g.orders.map(o => {
-    const u = o._urgency;
-    const ulabel = URGENCY_LABELS[u.bucket] || URGENCY_LABELS.low;
+    const dl = o._daysLeft || computeDaysLeft(o);
+    const dllabel = DAYS_LEFT_LABELS[dl.bucket] || DAYS_LEFT_LABELS.unknown;
     const isSelected = State.selected.has(o.id);
     const eligible = o.awb && o.awbOk && o.courier === 'cargo' && !State.dispatched[o.id];
     const cbDisabled = !eligible ? 'disabled' : '';
+    const dlText = dl.hasPromise ? `${dl.value > 0 ? '+' : ''}${dl.value}d` : '—';
+    const dlTitle = dl.hasPromise
+      ? `Promise: ${o.promisedDeliveryDate} · Transit: ${dl.transitDays}d`
+      : 'No promise date';
 
     return `<li class="${isSelected ? 'row-selected' : ''}">
       <input type="checkbox" class="pl-cb" data-id="${escapeHtml(o.id)}" ${isSelected ? 'checked' : ''} ${cbDisabled} title="${eligible ? '' : 'Not yet eligible — needs valid AWB and Cargo tag'}" />
-      <span class="urgency-badge ${u.bucket}" title="${escapeHtml(u.reason)}">
-        <span class="udot"></span>${ulabel.label}
+      <span class="urgency-badge" style="background:${dllabel.bg};color:${dllabel.color};font-weight:600" title="${escapeHtml(dlTitle)}">
+        <span class="udot" style="background:${dllabel.color}"></span>${dlText}
       </span>
       <span class="pl-customer">
         ${escapeHtml(o.customerName || '—')}
@@ -3395,9 +3649,10 @@ function filterRowsWithUrgency(allRows){
     case 'untagged': rows = rows.filter(r => !r.courier); break;
     case 'missing': rows = rows.filter(r => !r.awb || !r.awbOk); break;
   }
-  // Urgency filter
-  if(State.planning.urgencyFilter && State.planning.urgencyFilter !== 'all'){
-    rows = rows.filter(r => r._urgency?.bucket === State.planning.urgencyFilter);
+  // v1.2 — Days-left bucket filter (replaces v1.1.3 urgency filter)
+  const f = State.planning.urgencyFilter;
+  if(f && f !== 'all'){
+    rows = rows.filter(r => r._daysLeft?.bucket === f);
   }
   // Search
   if(State.search){
@@ -3508,17 +3763,25 @@ function renderRow(r){
     awbCell = r.awb;
   }
 
-  // Urgency cell (v1.1.3)
-  const u = r._urgency || computeUrgency(r);
-  const ulabel = URGENCY_LABELS[u.bucket] || URGENCY_LABELS.low;
-  const isManual = !!u.manual;
-  const urgencyCell = `<span class="urgency-badge ${u.bucket} ${isManual ? 'manual' : ''}" data-urgency-row="${r.id}" title="${escapeHtml(u.reason)}${isManual ? ' (manual override — click to clear)' : ' (click to set manually)'}">
-    <span class="udot"></span>${ulabel.label}
-  </span>`;
+  // v1.2 — Days Left cell (replaces v1.1.3 urgency badge)
+  const dl = r._daysLeft || computeDaysLeft(r);
+  const dllabel = DAYS_LEFT_LABELS[dl.bucket] || DAYS_LEFT_LABELS.unknown;
+  let daysLeftCell;
+  if(!dl.hasPromise){
+    daysLeftCell = `<span class="urgency-badge" style="background:${dllabel.bg};color:${dllabel.color}" title="No promised_delivery_date in InvoLens — cannot compute">
+      <span class="udot" style="background:${dllabel.color}"></span>—
+    </span>`;
+  } else {
+    const sign = dl.value > 0 ? '+' : '';
+    const tooltip = `Promise: ${r.promisedDeliveryDate} · Transit: ${dl.transitDays}d · Latest ship: ${dl.latestShipDate}${dl.hasTransit ? '' : ' (using default — no state-specific transit data)'}`;
+    daysLeftCell = `<span class="urgency-badge" style="background:${dllabel.bg};color:${dllabel.color};font-weight:600" title="${escapeHtml(tooltip)}">
+      <span class="udot" style="background:${dllabel.color}"></span>${sign}${dl.value}d
+    </span>`;
+  }
 
   tr.innerHTML = `
     <td><input type="checkbox" data-row-id="${r.id}" ${checked} /></td>
-    <td>${urgencyCell}</td>
+    <td>${daysLeftCell}</td>
     <td class="mono" title="${r.invoiceNo}">${(r.invoiceNo||'').replace('inv_imp_','').slice(0,16)}…</td>
     <td class="mono">${r.orderId || '—'}</td>
     <td><span class="tag ${r.platform}">${platformLabel}</span></td>
@@ -3563,12 +3826,6 @@ function renderRow(r){
         renderDispatch();
       }
     });
-  }
-
-  // Click urgency badge to manually override or clear
-  const urgBadge = tr.querySelector('[data-urgency-row]');
-  if(urgBadge){
-    urgBadge.addEventListener('click', () => openUrgencyMenu(r.id));
   }
 
   return tr;
@@ -4941,10 +5198,11 @@ function bindFilters(){
     });
   });
 
-  // v1.1.3 — Urgency filter chips
+  // v1.2 — Days-left filter chips (replaces v1.1.3 urgency filter)
   document.querySelectorAll('.ub-chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      const u = chip.dataset.urgency;
+      const u = chip.dataset.dlbucket;
+      if(!u) return;
       // Toggle: if already selected, clear back to 'all'
       State.planning.urgencyFilter = (State.planning.urgencyFilter === u) ? 'all' : u;
       persistLocal();
@@ -4953,9 +5211,8 @@ function bindFilters(){
   });
 
   // v1.1.3 — Print picklist
-  $('#printPicklistBtn').addEventListener('click', () => {
-    window.print();
-  });
+  const printBtn = $('#printPicklistBtn');
+  if(printBtn) printBtn.addEventListener('click', () => window.print());
 
   // v1.1.3 — Send to Dispatch
   $('#sendToDispatchBtn').addEventListener('click', () => {
@@ -5315,6 +5572,7 @@ function init(){
   bindFilters();
   bindBatchFilters();          // v1.1.2 — Pack & Ship tab
   bindInboxFilters();          // v1.2 — Inbox tab
+  bindTransitSettings();       // v1.2 — Transit Times settings
   bindImport();
   bindSettings();
 
