@@ -1939,8 +1939,45 @@
           </div>
 
           <div class="field-group">
-            <label>Currently configured</label>
+            <label>Currently configured (state-wise)</label>
             <div id="transitTablePreview" style="background:var(--cream);padding:12px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.7;color:var(--ink-2);max-height:280px;overflow-y:auto"></div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid var(--line);margin:24px 0">
+
+          <h3 style="margin-top:0">Pincode-wise transit (preferred)</h3>
+          <p class="desc">More accurate than state averages. When a pincode has data here, it overrides the state-wise lookup. Same table is used for all couriers.</p>
+
+          <div class="field-group">
+            <label>Upload pincode transit table <span style="color:var(--ink-3);text-transform:none;letter-spacing:0">(CSV: pincode,days — one row per pincode)</span></label>
+            <textarea id="pincodeCsvInput" rows="10" class="mono" placeholder="400001,1&#10;400072,2&#10;110001,4&#10;560001,3&#10;..." style="width:100%;font-family:'JetBrains Mono',monospace;font-size:12px;border:1px solid var(--line);border-radius:6px;padding:10px;color:var(--ink);background:#fff"></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="btn sm" id="pincodeApplyBtn">Apply to TrackLens</button>
+              <button class="btn ghost sm" id="pincodeClearBtn" style="color:#a63333">Clear all</button>
+              <span id="pincodeApplyResult" class="mono" style="font-size:11.5px;color:var(--ink-3)"></span>
+            </div>
+            <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
+              Accepts 6-digit pincodes. Comments with <span class="mono">#</span> ignored. Large files OK — paste up to 20,000 rows.
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label>Pincode coverage</label>
+            <div id="pincodeCoverageBlock" style="background:var(--cream);padding:12px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.7;color:var(--ink-2)"></div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid var(--line);margin:24px 0">
+
+          <h3 style="margin-top:0">Pincode lookup checker</h3>
+          <p class="desc">Type a pincode (or pincode + state) to see which transit time TrackLens will use and where it came from. Useful for verifying coverage.</p>
+
+          <div class="field-group">
+            <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+              <input type="text" id="pincodeLookupInput" class="mono" placeholder="400001" maxlength="6" style="width:120px;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);background:#fff" />
+              <input type="text" id="pincodeLookupStateInput" class="mono" placeholder="state (optional, e.g. MH)" style="width:200px;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);background:#fff" />
+              <button class="btn sm" id="pincodeLookupBtn">Look up</button>
+            </div>
+            <div id="pincodeLookupResult" style="margin-top:10px;background:var(--cream);padding:14px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.7;color:var(--ink);min-height:50px;display:none"></div>
           </div>
         </div>
 
@@ -2033,7 +2070,8 @@ const State = {
     },
     // v1.2 — User-uploaded transit time overrides per state (or 2-letter code).
     // Falls back to ZONE_TRANSIT_DAYS defaults if a state isn't found here.
-    transitOverrides: {}         // { 'MH': 2, 'GJ': 3, 'Karnataka': 3, ... }
+    transitOverrides: {},        // state-wise: { 'MH': 2, 'GJ': 3, 'Karnataka': 3, ... }
+    pincodeTransitOverrides: {}  // pincode-wise: { '400001': 1, '110001': 4, ... } — preferred source
   },
   // Auth state — for Cargo, tokens come directly from the user (panel-generated)
   // and we just verify by hitting an authenticated endpoint. No login flow needed.
@@ -2214,32 +2252,51 @@ const ZONE_TRANSIT_DAYS = {
   'CH': 4, 'Chandigarh': 4, 'PY': 3, 'Puducherry': 3, 'DN': 3, 'DD': 3
 };
 
-function getTransitDaysFromState(stateRaw){
-  if(!stateRaw) return 4;  // unknown — assume mid-range
-  const s = String(stateRaw).trim();
-  // 1. User-uploaded overrides take priority (Settings → Transit Times)
-  const userOverrides = State.settings?.transitOverrides || {};
-  if(userOverrides[s] != null) return userOverrides[s];
-  const upper2 = s.slice(0, 2).toUpperCase();
-  if(userOverrides[upper2] != null) return userOverrides[upper2];
-  // 2. Built-in defaults
-  if(ZONE_TRANSIT_DAYS[s] != null) return ZONE_TRANSIT_DAYS[s];
-  if(ZONE_TRANSIT_DAYS[upper2] != null) return ZONE_TRANSIT_DAYS[upper2];
-  // 3. Default: 4 (north-plain)
-  return 4;
+/* Resolve transit days for a destination, using lookup priority:
+ *   1. Pincode-specific (uploaded by user, most accurate)
+ *   2. State-specific (uploaded by user OR built-in default)
+ *   3. Built-in fallback (4 days for unknown)
+ *
+ * Returns { days, source } where source is:
+ *   'pincode' | 'state-user' | 'state-default' | 'default'
+ */
+function resolveTransitDays(state, pincode){
+  // 1. Pincode-specific override
+  const pincodeOverrides = State.settings?.pincodeTransitOverrides || {};
+  const pcKey = String(pincode || '').trim();
+  if(pcKey && pincodeOverrides[pcKey] != null){
+    return { days: pincodeOverrides[pcKey], source: 'pincode', sourceLabel: `pincode ${pcKey}` };
+  }
+  // 2. State-specific (user or default)
+  const userStateOverrides = State.settings?.transitOverrides || {};
+  const stateKey = String(state || '').trim();
+  if(stateKey && userStateOverrides[stateKey] != null){
+    return { days: userStateOverrides[stateKey], source: 'state-user', sourceLabel: `state ${stateKey}` };
+  }
+  if(stateKey){
+    const upper2 = stateKey.slice(0, 2).toUpperCase();
+    if(userStateOverrides[upper2] != null){
+      return { days: userStateOverrides[upper2], source: 'state-user', sourceLabel: `state ${upper2}` };
+    }
+    if(ZONE_TRANSIT_DAYS[stateKey] != null){
+      return { days: ZONE_TRANSIT_DAYS[stateKey], source: 'state-default', sourceLabel: `state ${stateKey} (built-in default)` };
+    }
+    if(ZONE_TRANSIT_DAYS[upper2] != null){
+      return { days: ZONE_TRANSIT_DAYS[upper2], source: 'state-default', sourceLabel: `state ${upper2} (built-in default)` };
+    }
+  }
+  // 3. Catch-all default
+  return { days: 4, source: 'default', sourceLabel: 'no data — using default 4d' };
 }
 
-/* Returns true if we have a transit-time entry (user or default) for this state. */
-function hasTransitDataForState(stateRaw){
-  if(!stateRaw) return false;
-  const s = String(stateRaw).trim();
-  const userOverrides = State.settings?.transitOverrides || {};
-  if(userOverrides[s] != null) return true;
-  const upper2 = s.slice(0, 2).toUpperCase();
-  if(userOverrides[upper2] != null) return true;
-  if(ZONE_TRANSIT_DAYS[s] != null) return true;
-  if(ZONE_TRANSIT_DAYS[upper2] != null) return true;
-  return false;
+function getTransitDaysFromState(stateRaw, pincode){
+  return resolveTransitDays(stateRaw, pincode).days;
+}
+
+/* Returns true if we have pincode-specific OR state-specific data (excludes catch-all default). */
+function hasTransitDataForState(stateRaw, pincode){
+  const r = resolveTransitDays(stateRaw, pincode);
+  return r.source !== 'default';
 }
 
 /* Compute days-left-to-dispatch for an order.
@@ -2253,11 +2310,14 @@ function hasTransitDataForState(stateRaw){
  */
 function computeDaysLeft(row, today){
   today = today || new Date().toISOString().slice(0, 10);
-  const transitDays = getTransitDaysFromState(row.state);
-  const hasTransit = hasTransitDataForState(row.state);
+  const transit = resolveTransitDays(row.state, row.pincode);
+  const transitDays = transit.days;
+  const hasTransit = transit.source !== 'default';
+  const transitSource = transit.source;
+  const transitSourceLabel = transit.sourceLabel;
   const promise = row.promisedDeliveryDate;
   if(!promise){
-    return { value: null, bucket: 'unknown', hasPromise: false, hasTransit, transitDays, daysToDelivery: null, latestShipDate: null };
+    return { value: null, bucket: 'unknown', hasPromise: false, hasTransit, transitDays, transitSource, transitSourceLabel, daysToDelivery: null, latestShipDate: null };
   }
   // daysToDelivery = promise - today (how many days until customer expects it)
   const daysToDelivery = daysBetween(today, promise);
@@ -2274,7 +2334,7 @@ function computeDaysLeft(row, today){
   else if(value <= 5) bucket = 'medium';
   else bucket = 'relaxed';
 
-  return { value, bucket, hasPromise: true, hasTransit, transitDays, daysToDelivery, latestShipDate };
+  return { value, bucket, hasPromise: true, hasTransit, transitDays, transitSource, transitSourceLabel, daysToDelivery, latestShipDate };
 }
 
 const DAYS_LEFT_LABELS = {
@@ -2301,7 +2361,7 @@ function computeUrgency(row, planDateStr){
   const today = planDateStr || new Date().toISOString().slice(0, 10);
   const invoiceDate = row.invoiceDate || (row.createdAt || '').slice(0, 10);
   const daysSinceInvoice = Math.max(0, daysBetween(invoiceDate, today));
-  const transitDays = getTransitDaysFromState(row.state);
+  const transitDays = getTransitDaysFromState(row.state, row.pincode);
   const isReplacement = !!row.isReplacement;
   const promiseDate = row.promisedDeliveryDate || null;
 
@@ -2510,6 +2570,7 @@ function restoreLocal(){
   if(typeof State.settings.involens.dataFolderId !== 'string') State.settings.involens.dataFolderId = '';
   if(!State.settings.proxy) State.settings.proxy = { url: '' };
   if(!State.settings.transitOverrides || typeof State.settings.transitOverrides !== 'object') State.settings.transitOverrides = {};
+  if(!State.settings.pincodeTransitOverrides || typeof State.settings.pincodeTransitOverrides !== 'object') State.settings.pincodeTransitOverrides = {};
 }
 
 /* ------------------- InvoLens import ------------------- */
@@ -2890,17 +2951,233 @@ function bindTransitSettings(){
   // Show current state on load
   const overrides = State.settings.transitOverrides || {};
   if(Object.keys(overrides).length > 0){
-    // Reconstruct CSV from current overrides
     const lines = Object.entries(overrides).sort().map(([s,d]) => `${s},${d}`);
     const ta = $('#transitCsvInput');
     if(ta) ta.value = lines.join('\n');
   }
   renderTransitPreview();
+
+  // v1.2 — Pincode-wise transit
+  const pcApply = $('#pincodeApplyBtn');
+  if(pcApply) pcApply.addEventListener('click', applyPincodeCsv);
+  const pcClear = $('#pincodeClearBtn');
+  if(pcClear) pcClear.addEventListener('click', clearPincodeOverrides);
+  const pcLookup = $('#pincodeLookupBtn');
+  if(pcLookup) pcLookup.addEventListener('click', runPincodeLookup);
+  const pcInput = $('#pincodeLookupInput');
+  if(pcInput) pcInput.addEventListener('keydown', e => { if(e.key === 'Enter') runPincodeLookup(); });
+  const pcStateInput = $('#pincodeLookupStateInput');
+  if(pcStateInput) pcStateInput.addEventListener('keydown', e => { if(e.key === 'Enter') runPincodeLookup(); });
+  // Show coverage on load
+  renderPincodeCoverage();
+  // Pre-populate textarea if data exists (sample only — full table can be 19K rows, too big for textarea)
+  const pcOverrides = State.settings.pincodeTransitOverrides || {};
+  const pcCount = Object.keys(pcOverrides).length;
+  if(pcCount > 0 && pcCount <= 100){
+    // Small enough to round-trip
+    const lines = Object.entries(pcOverrides).sort().map(([p,d]) => `${p},${d}`);
+    const ta = $('#pincodeCsvInput');
+    if(ta) ta.value = lines.join('\n');
+  }
+}
+
+/* ============================================================
+ * v1.2 — Pincode-wise transit (CSV upload + lookup checker)
+ * ============================================================ */
+
+function parsePincodeCsv(text){
+  const out = {};
+  const errors = [];
+  const lines = (text || '').split(/\r?\n/);
+  lines.forEach((line, i) => {
+    const trimmed = line.trim();
+    if(!trimmed || trimmed.startsWith('#')) return;
+    const parts = trimmed.split(/[,\t]/).map(s => s.trim()).filter(s => s.length > 0);
+    if(parts.length < 2){
+      errors.push(`Line ${i+1}: skipped (need pincode,days) — "${trimmed}"`);
+      return;
+    }
+    const pincode = parts[0];
+    const daysRaw = parts[1];
+    // Validate pincode = 6 digits
+    if(!/^\d{6}$/.test(pincode)){
+      errors.push(`Line ${i+1}: invalid pincode "${pincode}" — must be 6 digits`);
+      return;
+    }
+    const days = parseFloat(daysRaw);
+    if(isNaN(days) || days < 0 || days > 30){
+      errors.push(`Line ${i+1}: invalid days "${daysRaw}" — must be 0–30`);
+      return;
+    }
+    out[pincode] = Math.round(days);
+  });
+  return { entries: out, errors };
+}
+
+function applyPincodeCsv(){
+  const csv = $('#pincodeCsvInput').value;
+  const result = parsePincodeCsv(csv);
+  const entries = result.entries;
+  const count = Object.keys(entries).length;
+
+  if(count === 0){
+    $('#pincodeApplyResult').textContent = '✗ No valid pincodes found';
+    $('#pincodeApplyResult').style.color = 'var(--red)';
+    return;
+  }
+
+  // Merge with existing rather than replace — allows incremental uploads
+  // Actually, replace is cleaner — user expectation is "what I paste is the new table".
+  State.settings.pincodeTransitOverrides = entries;
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_settings.json', State.settings).catch(()=>{});
+  }
+
+  let msg = `✓ Applied ${count.toLocaleString()} pincodes`;
+  if(result.errors.length){
+    msg += ` (${result.errors.length} skipped — see console)`;
+    console.warn('[TrackLens] Pincode CSV parse warnings:', result.errors.slice(0, 50));
+    if(result.errors.length > 50) console.warn(`(${result.errors.length - 50} more...)`);
+  }
+  $('#pincodeApplyResult').textContent = msg;
+  $('#pincodeApplyResult').style.color = 'var(--green)';
+
+  renderPincodeCoverage();
+  if(typeof renderDispatch === 'function') renderDispatch();
+}
+
+function clearPincodeOverrides(){
+  const count = Object.keys(State.settings.pincodeTransitOverrides || {}).length;
+  if(count === 0){
+    $('#pincodeApplyResult').textContent = '(nothing to clear)';
+    $('#pincodeApplyResult').style.color = 'var(--ink-3)';
+    return;
+  }
+  if(!confirm(`Clear all ${count.toLocaleString()} pincode overrides? TrackLens will fall back to state-wise lookup.`)) return;
+  State.settings.pincodeTransitOverrides = {};
+  persistLocal();
+  if(State.drive.connected){
+    writeDriveJSON('tracklens_settings.json', State.settings).catch(()=>{});
+  }
+  const ta = $('#pincodeCsvInput');
+  if(ta) ta.value = '';
+  $('#pincodeApplyResult').textContent = '✓ Cleared';
+  $('#pincodeApplyResult').style.color = 'var(--ink-2)';
+  renderPincodeCoverage();
+  if(typeof renderDispatch === 'function') renderDispatch();
+}
+
+function renderPincodeCoverage(){
+  const container = $('#pincodeCoverageBlock');
+  if(!container) return;
+  const overrides = State.settings.pincodeTransitOverrides || {};
+  const count = Object.keys(overrides).length;
+  if(count === 0){
+    container.innerHTML = `<em style="color:var(--ink-3)">No pincode overrides configured. Falling back to state-wise transit (or built-in defaults).</em>`;
+    return;
+  }
+  // Distribution by transit days
+  const byDays = {};
+  Object.values(overrides).forEach(d => { byDays[d] = (byDays[d] || 0) + 1; });
+  const sortedDays = Object.keys(byDays).map(n => parseInt(n,10)).sort((a,b)=>a-b);
+  const distHtml = sortedDays.map(d => {
+    const n = byDays[d];
+    const pct = Math.round(100 * n / count);
+    return `<div><strong>${d} day${d===1?'':'s'}:</strong> ${n.toLocaleString()} pincodes <span style="color:var(--ink-3)">(${pct}%)</span></div>`;
+  }).join('');
+  // How many of YOUR ORDERS are covered?
+  let coveredOrders = 0, totalOrdersWithPincode = 0;
+  (State.invoices || []).forEach(r => {
+    if(r.pincode){
+      totalOrdersWithPincode++;
+      if(overrides[r.pincode] != null) coveredOrders++;
+    }
+  });
+  const orderPct = totalOrdersWithPincode > 0 ? Math.round(100 * coveredOrders / totalOrdersWithPincode) : 0;
+  const orderCoverageHtml = totalOrdersWithPincode > 0
+    ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)"><strong>Your current orders:</strong> ${coveredOrders.toLocaleString()} of ${totalOrdersWithPincode.toLocaleString()} pincodes covered (${orderPct}%)${orderPct < 100 ? ' — uncovered orders will use state-wise fallback' : ''}</div>`
+    : '';
+
+  container.innerHTML = `<div><strong>${count.toLocaleString()}</strong> pincodes configured</div>${distHtml}${orderCoverageHtml}`;
+}
+
+function runPincodeLookup(){
+  const pcInput = $('#pincodeLookupInput');
+  const stateInput = $('#pincodeLookupStateInput');
+  const result = $('#pincodeLookupResult');
+  if(!pcInput || !result) return;
+  const pincode = (pcInput.value || '').trim();
+  const state = (stateInput?.value || '').trim();
+  result.style.display = 'block';
+  if(!pincode){
+    result.innerHTML = `<span style="color:var(--red)">Please enter a pincode.</span>`;
+    return;
+  }
+  if(!/^\d{6}$/.test(pincode)){
+    result.innerHTML = `<span style="color:var(--red)">Pincode must be 6 digits.</span>`;
+    return;
+  }
+  const r = resolveTransitDays(state, pincode);
+  const sourceColor = r.source === 'pincode' ? '#2d7d3a'
+                    : r.source === 'state-user' ? 'var(--ink)'
+                    : r.source === 'state-default' ? '#8a7510'
+                    : '#a16a0e';
+  const sourceLabel = {
+    'pincode':       'Pincode-specific (best — your uploaded table)',
+    'state-user':    'State-wise (your uploaded override)',
+    'state-default': 'State-wise (TrackLens built-in default)',
+    'default':       'No data found — using catch-all fallback (4d)'
+  }[r.source] || r.source;
+
+  // Show full resolution chain so user sees what was tried
+  const overrides = State.settings.pincodeTransitOverrides || {};
+  const stateOverrides = State.settings.transitOverrides || {};
+  const tried = [];
+  tried.push({
+    step: '1. Pincode-specific override',
+    result: overrides[pincode] != null ? `✓ ${overrides[pincode]}d` : '— not in pincode table',
+    matched: overrides[pincode] != null
+  });
+  if(state){
+    const upper2 = state.slice(0,2).toUpperCase();
+    let stateMatch = null;
+    if(stateOverrides[state] != null) stateMatch = { val: stateOverrides[state], key: state, builtin: false };
+    else if(stateOverrides[upper2] != null) stateMatch = { val: stateOverrides[upper2], key: upper2, builtin: false };
+    else if(ZONE_TRANSIT_DAYS[state] != null) stateMatch = { val: ZONE_TRANSIT_DAYS[state], key: state, builtin: true };
+    else if(ZONE_TRANSIT_DAYS[upper2] != null) stateMatch = { val: ZONE_TRANSIT_DAYS[upper2], key: upper2, builtin: true };
+    tried.push({
+      step: '2. State-wise lookup',
+      result: stateMatch ? `${stateMatch.builtin ? '✓ (built-in)' : '✓ (your override)'} ${stateMatch.val}d for ${stateMatch.key}` : `— state not found`,
+      matched: !!stateMatch && r.source !== 'pincode'
+    });
+  } else {
+    tried.push({ step: '2. State-wise lookup', result: '— skipped (no state provided)', matched: false });
+  }
+  if(r.source === 'default'){
+    tried.push({ step: '3. Catch-all default', result: '✓ 4d', matched: true });
+  }
+
+  const chainHtml = tried.map(t => {
+    const color = t.matched ? '#2d7d3a' : 'var(--ink-3)';
+    const weight = t.matched ? '600' : '400';
+    return `<div style="color:${color};font-weight:${weight}">${escapeHtml(t.step)}: ${escapeHtml(t.result)}</div>`;
+  }).join('');
+
+  result.innerHTML = `
+    <div style="font-size:14px;margin-bottom:8px"><strong>Pincode ${escapeHtml(pincode)}${state ? ' · ' + escapeHtml(state) : ''}</strong></div>
+    <div style="font-size:18px;color:${sourceColor};font-weight:600;margin-bottom:6px">${r.days} day${r.days===1?'':'s'} transit</div>
+    <div style="color:${sourceColor};margin-bottom:12px">Source: ${escapeHtml(sourceLabel)}</div>
+    <div style="border-top:1px solid var(--line);padding-top:10px;margin-top:6px">
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:5px">Resolution chain</div>
+      ${chainHtml}
+    </div>
+  `;
 }
 
 function suggestDispatchDate(row){
   const today = new Date().toISOString().slice(0, 10);
-  const transitDays = getTransitDaysFromState(row.state);
+  const transitDays = getTransitDaysFromState(row.state, row.pincode);
   const promise = row.promisedDeliveryDate;
   if(!promise){
     return { date: today, reason: `no promise date — default today (transit ${transitDays}d)` };
@@ -3844,11 +4121,19 @@ function renderRow(r){
   }
 
   // Column: Transit (state → days)
-  const transitColor = dl.hasTransit ? 'var(--ink-2)' : '#a16a0e';
-  const transitTitle = dl.hasTransit
-    ? `Transit time for ${escapeHtml(r.state || 'state')} (Settings → Transit Times)`
-    : `No state-specific transit data — using default ${dl.transitDays}d. Set in Settings → Transit Times.`;
-  const transitCell = `<span class="mono" style="color:${transitColor};font-size:12px" title="${transitTitle}">${dl.transitDays}d${dl.hasTransit ? '' : '<span style="margin-left:3px">⚠</span>'}</span>`;
+  const transitColor = dl.transitSource === 'pincode' ? '#2d7d3a'
+                     : dl.transitSource === 'state-user' ? 'var(--ink-2)'
+                     : dl.transitSource === 'state-default' ? '#8a7510'
+                     : '#a16a0e';
+  const transitSourceTip = dl.transitSource === 'pincode' ? `Pincode-specific (${escapeHtml(r.pincode || '')})`
+                         : dl.transitSource === 'state-user' ? `State-wise (your override)`
+                         : dl.transitSource === 'state-default' ? `State-wise (built-in default)`
+                         : `No data — using catch-all default`;
+  const transitTitle = `${transitSourceTip}. Configure in Settings → Transit Times.`;
+  const transitMark = dl.transitSource === 'pincode' ? ''
+                    : dl.transitSource === 'state-user' ? ''
+                    : '<span style="margin-left:3px">⚠</span>';
+  const transitCell = `<span class="mono" style="color:${transitColor};font-size:12px" title="${transitTitle}">${dl.transitDays}d${transitMark}</span>`;
 
   // Column: Days Left (the bucket badge)
   let daysLeftCell;
