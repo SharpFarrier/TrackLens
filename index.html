@@ -2825,6 +2825,7 @@ function planOrderForDate(invoiceId, dispatchDate, options = {}){
 function migrateLegacyStatuses(){
   if(!State.invoices || State.invoices.length === 0) return;
   let migrated = 0;
+  const today = new Date().toISOString().slice(0, 10);
   State.invoices.forEach(inv => {
     if(inv.status && STATUS_DEFS[inv.status]) return;  // already has a valid status
     // Infer from v1.1.x dispatched map
@@ -2832,6 +2833,10 @@ function migrateLegacyStatuses(){
       inv.status = 'packed';
       inv.packedAt = State.dispatched[inv.id].dispatchedAt || new Date().toISOString();
       inv.dispatchDate = (inv.packedAt || '').slice(0, 10);
+    } else if(State.batch?.selected instanceof Set && State.batch.selected.has(inv.id)){
+      // v1.1.x had this in the dispatch selection — treat as planned for today
+      inv.status = 'planned';
+      inv.dispatchDate = today;
     } else {
       inv.status = 'inbox';
     }
@@ -2841,6 +2846,34 @@ function migrateLegacyStatuses(){
   });
   if(migrated > 0){
     console.log(`[TrackLens] Migrated ${migrated} orders to v1.2 status model`);
+    persistLocal();
+  }
+}
+
+/* One-time migration: if an order is in State.batch.selected AND still status='inbox',
+ * it was selected for dispatch in v1.1.x but never got a status. Promote to 'planned'
+ * so it appears in Pack & Ship. Runs every load but only touches inbox+selected orders.
+ */
+function migrateSelectedToPlanned(){
+  if(!State.invoices || State.invoices.length === 0) return;
+  const sel = State.batch?.selected;
+  if(!(sel instanceof Set) || sel.size === 0) return;
+  const today = new Date().toISOString().slice(0, 10);
+  let promoted = 0;
+  State.invoices.forEach(inv => {
+    if(inv.status === 'inbox' && sel.has(inv.id)){
+      inv.status = 'planned';
+      inv.dispatchDate = inv.dispatchDate || today;
+      inv.statusHistory = inv.statusHistory || [];
+      inv.statusHistory.push({
+        from: 'inbox', to: 'planned', at: new Date().toISOString(),
+        by: 'migration', reason: 'was in v1.1 batch selection'
+      });
+      promoted++;
+    }
+  });
+  if(promoted > 0){
+    console.log(`[TrackLens] Promoted ${promoted} inbox+selected orders to planned (v1.1→v1.2 migration)`);
     persistLocal();
   }
 }
@@ -6121,6 +6154,7 @@ function init(){
 
   restoreLocal();
   migrateLegacyStatuses();   // v1.2 — bring v1.1.x data into v1.2 status model
+  migrateSelectedToPlanned(); // v1.2 — promote any lingering inbox+selected orders
   applySettingsToInputs();
   // If we already have a cached cargo verification, show it
   if(State.tokens.cargo){
