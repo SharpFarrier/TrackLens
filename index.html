@@ -2581,6 +2581,7 @@ function persistLocal(){
       tokens: State.tokens,
       dispatched: State.dispatched,
       batchHistory: State.batch.history,
+      batchSelected: [...State.batch.selected],  // v1.2: persist selection
       awbOverrides: State.awbOverrides,
       urgencyOverrides: State.urgencyOverrides,
       planning: State.planning
@@ -2600,6 +2601,8 @@ function restoreLocal(){
     if(parsed.tokens) Object.assign(State.tokens, parsed.tokens);
     if(parsed.dispatched) State.dispatched = parsed.dispatched;
     if(parsed.batchHistory) State.batch.history = parsed.batchHistory;
+    if(parsed.batchSelected) State.batch.selected = new Set(parsed.batchSelected);  // v1.2: restore selection
+    else if(parsed.selected) State.batch.selected = new Set(parsed.selected);         // v1.1 compat: was State.selected
     if(parsed.awbOverrides) State.awbOverrides = parsed.awbOverrides;
     if(parsed.urgencyOverrides) State.urgencyOverrides = parsed.urgencyOverrides;
     if(parsed.planning) Object.assign(State.planning, parsed.planning);
