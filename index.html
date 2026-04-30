@@ -1862,7 +1862,7 @@
 
         <div class="settings-section" data-section="drive" style="display:none">
           <h3>Drive Sync</h3>
-          <p class="desc">TrackLens reads and writes JSON files to your dedicated Drive folder. Auth scope: <span class="mono">drive.file</span> — only files created by TrackLens are visible.</p>
+          <p class="desc">TrackLens reads JSON files from your Drive (including InvoLens-created folders) and writes its own state to a dedicated folder. Scope: <span class="mono">drive.file + drive.readonly</span>.</p>
 
           <div class="field-group">
             <label>Drive folder ID</label>
@@ -1975,7 +1975,7 @@ const STORAGE_KEY = 'tracklens_v1';
 const REGISTRY_KEY = 'tracklens_registry';
 const DRIVE_FOLDER_ID = '1tRjPhSHq8eGWg2kLzz0E1xPcWav_aA3J';
 const OAUTH_CLIENT_ID = '801481705797-4lr6orueunsbdk5vhhe578bga4ai6lhq.apps.googleusercontent.com';
-const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly';
 
 /* ------------------- State ------------------- */
 const State = {
@@ -2065,13 +2065,7 @@ function suggestCourierFromAwb(awb){
 }
 
 /* ------------------- Utils ------------------- */
-const $ = (sel) => {
-  const el = document.querySelector(sel);
-  if(!el && sel.startsWith('#')){
-    console.warn(`[TrackLens][diag] $('${sel}') returned null at:`, new Error().stack);
-  }
-  return el;
-};
+const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
 function toast(msg, type='info', dur=3500){
