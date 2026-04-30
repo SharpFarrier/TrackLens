@@ -1549,7 +1549,9 @@
           <thead>
             <tr>
               <th style="width:40px"><input type="checkbox" id="selectAll" /></th>
-              <th style="width:90px" title="Days left until you must dispatch to meet promise date — promise minus transit time">Days Left</th>
+              <th style="width:70px" title="Days from today until customer's promise_date">To Delivery</th>
+              <th style="width:70px" title="Average transit time from Kalyan warehouse to destination state (set in Settings → Transit Times)">Transit</th>
+              <th style="width:90px" title="Days left to dispatch and still hit promise date — (promise_date − today) − transit_days. Negative = ship today, already late">Days Left</th>
               <th>Invoice</th>
               <th>Order ID</th>
               <th>Platform</th>
@@ -2255,11 +2257,12 @@ function computeDaysLeft(row, today){
   const hasTransit = hasTransitDataForState(row.state);
   const promise = row.promisedDeliveryDate;
   if(!promise){
-    return { value: null, bucket: 'unknown', hasPromise: false, hasTransit, transitDays, latestShipDate: null };
+    return { value: null, bucket: 'unknown', hasPromise: false, hasTransit, transitDays, daysToDelivery: null, latestShipDate: null };
   }
-  // daysToPromise = promise - today
-  const daysToPromise = daysBetween(today, promise);
-  const value = daysToPromise - transitDays;
+  // daysToDelivery = promise - today (how many days until customer expects it)
+  const daysToDelivery = daysBetween(today, promise);
+  // value = days left to dispatch = daysToDelivery - transit
+  const value = daysToDelivery - transitDays;
   // Latest safe ship date = promise - transit
   const latestD = new Date(promise);
   latestD.setDate(latestD.getDate() - transitDays);
@@ -2271,7 +2274,7 @@ function computeDaysLeft(row, today){
   else if(value <= 5) bucket = 'medium';
   else bucket = 'relaxed';
 
-  return { value, bucket, hasPromise: true, hasTransit, transitDays, latestShipDate };
+  return { value, bucket, hasPromise: true, hasTransit, transitDays, daysToDelivery, latestShipDate };
 }
 
 const DAYS_LEFT_LABELS = {
@@ -3610,7 +3613,7 @@ function renderOrderTable(filtered){
   const tbody = $('#dispatchTbody');
   tbody.innerHTML = '';
   if(filtered.length === 0){
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--ink-3)">No orders match these filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:40px;color:var(--ink-3)">No orders match these filters.</td></tr>`;
   } else {
     filtered.forEach(r => tbody.appendChild(renderRow(r)));
   }
@@ -3826,17 +3829,36 @@ function renderRow(r){
     awbCell = r.awb;
   }
 
-  // v1.2 — Days Left cell (replaces v1.1.3 urgency badge)
+  // v1.2 beta — three diagnostic columns: To Delivery, Transit, Days Left
   const dl = r._daysLeft || computeDaysLeft(r);
   const dllabel = DAYS_LEFT_LABELS[dl.bucket] || DAYS_LEFT_LABELS.unknown;
+
+  // Column: To Delivery (promise_date − today)
+  let toDeliveryCell;
+  if(!dl.hasPromise){
+    toDeliveryCell = `<span class="mono" style="color:var(--ink-3);font-size:11.5px" title="No promise_date in InvoLens">—</span>`;
+  } else {
+    const d2dSign = dl.daysToDelivery > 0 ? '+' : '';
+    const d2dColor = dl.daysToDelivery <= 0 ? '#a63333' : (dl.daysToDelivery <= 2 ? '#c87914' : 'var(--ink-2)');
+    toDeliveryCell = `<span class="mono" style="color:${d2dColor};font-size:12px;font-weight:500" title="Promise date: ${escapeHtml(r.promisedDeliveryDate)}">${d2dSign}${dl.daysToDelivery}d</span>`;
+  }
+
+  // Column: Transit (state → days)
+  const transitColor = dl.hasTransit ? 'var(--ink-2)' : '#a16a0e';
+  const transitTitle = dl.hasTransit
+    ? `Transit time for ${escapeHtml(r.state || 'state')} (Settings → Transit Times)`
+    : `No state-specific transit data — using default ${dl.transitDays}d. Set in Settings → Transit Times.`;
+  const transitCell = `<span class="mono" style="color:${transitColor};font-size:12px" title="${transitTitle}">${dl.transitDays}d${dl.hasTransit ? '' : '<span style="margin-left:3px">⚠</span>'}</span>`;
+
+  // Column: Days Left (the bucket badge)
   let daysLeftCell;
   if(!dl.hasPromise){
-    daysLeftCell = `<span class="urgency-badge" style="background:${dllabel.bg};color:${dllabel.color}" title="No promised_delivery_date in InvoLens — cannot compute">
+    daysLeftCell = `<span class="urgency-badge" style="background:${dllabel.bg};color:${dllabel.color}" title="No promise_date in InvoLens — cannot compute">
       <span class="udot" style="background:${dllabel.color}"></span>—
     </span>`;
   } else {
     const sign = dl.value > 0 ? '+' : '';
-    const tooltip = `Promise: ${r.promisedDeliveryDate} · Transit: ${dl.transitDays}d · Latest ship: ${dl.latestShipDate}${dl.hasTransit ? '' : ' (using default — no state-specific transit data)'}`;
+    const tooltip = `(${dl.daysToDelivery}d to delivery) − (${dl.transitDays}d transit) = ${sign}${dl.value}d to dispatch · Latest ship: ${dl.latestShipDate}${dl.hasTransit ? '' : ' (using default transit)'}`;
     daysLeftCell = `<span class="urgency-badge" style="background:${dllabel.bg};color:${dllabel.color};font-weight:600" title="${escapeHtml(tooltip)}">
       <span class="udot" style="background:${dllabel.color}"></span>${sign}${dl.value}d
     </span>`;
@@ -3844,6 +3866,8 @@ function renderRow(r){
 
   tr.innerHTML = `
     <td><input type="checkbox" data-row-id="${r.id}" ${checked} /></td>
+    <td>${toDeliveryCell}</td>
+    <td>${transitCell}</td>
     <td>${daysLeftCell}</td>
     <td class="mono" title="${r.invoiceNo}">${(r.invoiceNo||'').replace('inv_imp_','').slice(0,16)}…</td>
     <td class="mono">${r.orderId || '—'}</td>
