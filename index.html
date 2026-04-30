@@ -4942,10 +4942,16 @@ function batchFilteredRows(){
       if(f.status === 'shipped' && status !== 'shipped') return false;
       // 'all' = show all three
 
-      // Date filter — now against dispatchDate (the planned ship date), not invoiceDate
-      const sortDate = r.dispatchDate || r.invoiceDate;
-      if(lo && sortDate < lo) return false;
-      if(hi && sortDate > hi) return false;
+      // Date filter — against dispatchDate only.
+      // If dispatchDate is null (order was moved to planned without a date), skip date filter.
+      if(lo || hi){
+        const sortDate = r.dispatchDate || null;
+        if(sortDate){
+          if(lo && sortDate < lo) return false;
+          if(hi && sortDate > hi) return false;
+        }
+        // If no dispatchDate: always show (no date to filter against)
+      }
 
       // Courier filter
       if(f.courier !== 'all'){
@@ -5185,11 +5191,15 @@ function renderBatchKpis(rows){
 function bindBatchFilters(){
   const f = State.batch.filters;
 
-  // v1.2: no date default — show all planned orders regardless of dispatchDate.
-  // Dispatch team can pull forward future-planned orders if stock is available.
-  // (Old behavior was last-7-days against invoiceDate, which doesn't fit v1.2 lifecycle.)
-  $('#batchFilterFrom').value = f.from || '';
-  $('#batchFilterTo').value = f.to || '';
+  // v1.2: force-clear any stale date filter from v1.1 localStorage.
+  // The date filter semantics changed (now against dispatchDate, not invoiceDate)
+  // so old persisted dates would silently hide all results.
+  f.from = '';
+  f.to = '';
+  if(f.status === 'ready' || f.status === 'dispatched') f.status = 'planned'; // v1.1 → v1.2 migration
+
+  $('#batchFilterFrom').value = '';
+  $('#batchFilterTo').value = '';
   $('#batchFilterStatus').value = f.status || 'planned';
 
   $('#batchFilterFrom').addEventListener('change', e => { f.from = e.target.value; renderBatch(); });
