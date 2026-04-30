@@ -1629,8 +1629,9 @@
       <div class="filter-group">
         <label>Status</label>
         <select id="batchFilterStatus">
-          <option value="ready">Ready to dispatch</option>
-          <option value="dispatched">Already dispatched</option>
+          <option value="planned">Planned (ready to pack)</option>
+          <option value="packed">Packed (awaiting pickup)</option>
+          <option value="shipped">Shipped (picked up)</option>
           <option value="all">All</option>
         </select>
       </div>
@@ -2105,12 +2106,12 @@ const State = {
   },
   // ------ v1.1.2 Dispatch batch state ------
   batch: {
-    selected: new Set(),     // invoice ids picked for dispatch on the Dispatch tab
+    selected: new Set(),     // invoice ids picked for dispatch on the Pack & Ship tab
     filters: {
-      from: '',              // YYYY-MM-DD or '' = no lower bound
+      from: '',              // YYYY-MM-DD or '' = no lower bound (filters dispatchDate now)
       to: '',                // YYYY-MM-DD or '' = no upper bound
       courier: 'all',        // all | cargo | delhivery_direct | bluedart | untagged
-      status: 'ready',       // ready | dispatched | all
+      status: 'planned',     // v1.2: planned (default) | packed | shipped | all
       search: ''
     },
     manualInvoicePdf: null,  // { name, bytes (Uint8Array), pageCount }
@@ -4923,16 +4924,29 @@ function batchFilteredRows(){
   const lo = f.from ? f.from : null;
   const hi = f.to ? f.to : null;
 
+  // v1.2 — Pack & Ship is the action layer. Only show orders that have been planned.
+  // EXCLUDES inbox / hold / cancel orders. To dispatch an unplanned order, user must
+  // first move it to 'planned' from the Plan tab or status menu on Master Database.
+  const PACK_VISIBLE_STATUSES = new Set(['planned', 'packed', 'shipped']);
+
   return State.invoices
-    .map(applyAwbOverride)   // apply AWB overrides so filters see the effective AWB
+    .map(applyAwbOverride)
     .filter(r => {
-      // Status filter
-      const isDispatched = !!State.dispatched[r.id];
-      if(f.status === 'ready' && isDispatched) return false;
-      if(f.status === 'dispatched' && !isDispatched) return false;
-      // Date filter (against invoiceDate, normalized YYYY-MM-DD)
-      if(lo && r.invoiceDate < lo) return false;
-      if(hi && r.invoiceDate > hi) return false;
+      const status = r.status || 'inbox';
+      // Hard gate — only planned/packed/shipped orders enter Pack & Ship
+      if(!PACK_VISIBLE_STATUSES.has(status)) return false;
+
+      // Status filter chip
+      if(f.status === 'planned' && status !== 'planned') return false;
+      if(f.status === 'packed' && status !== 'packed') return false;
+      if(f.status === 'shipped' && status !== 'shipped') return false;
+      // 'all' = show all three
+
+      // Date filter — now against dispatchDate (the planned ship date), not invoiceDate
+      const sortDate = r.dispatchDate || r.invoiceDate;
+      if(lo && sortDate < lo) return false;
+      if(hi && sortDate > hi) return false;
+
       // Courier filter
       if(f.courier !== 'all'){
         if(f.courier === 'untagged'){
@@ -4948,7 +4962,19 @@ function batchFilteredRows(){
       }
       return true;
     })
-    .sort((a, b) => batchSortKey(b).localeCompare(batchSortKey(a)));  // DESC
+    // Sort by dispatchDate ASC — orders planned for today first, then tomorrow, etc.
+    // Within same date, urgency (days-left) wins.
+    .sort((a, b) => {
+      const aDate = a.dispatchDate || a.invoiceDate || '';
+      const bDate = b.dispatchDate || b.invoiceDate || '';
+      if(aDate !== bDate) return aDate.localeCompare(bDate);
+      // Same date — sort by urgency (days-left ascending)
+      const aDl = computeDaysLeft(a);
+      const bDl = computeDaysLeft(b);
+      const aV = aDl.hasPromise ? aDl.value : Infinity;
+      const bV = bDl.hasPromise ? bDl.value : Infinity;
+      return aV - bV;
+    });
 }
 
 function renderBatch(){
@@ -5029,30 +5055,36 @@ function renderBatchRow(r){
                    : courierKey === 'delhivery_direct' ? 'Manual fetch in v1.1.2'
                    : '';
 
-  let statusHtml;
-  if(isDispatched){
-    statusHtml = `<span class="status-pill dispatched">Dispatched</span>`;
-  } else if(!r.awb){
-    statusHtml = `<span class="row-status err">No AWB</span>`;
-  } else if(!r.awbOk){
-    statusHtml = `<span class="row-status err">Bad AWB</span>`;
-  } else if(!courierKey){
-    statusHtml = `<span class="row-status warn">Tag courier</span>`;
-  } else if(cargoReady){
-    statusHtml = `<span class="status-pill ready">Ready</span>`;
-  } else {
-    statusHtml = `<span class="row-status warn">${skipReason}</span>`;
+  // v1.2 — Show the actual lifecycle status (planned / packed / shipped) as a pill,
+  // plus an actionable secondary signal (no AWB / bad AWB / tag courier / ready).
+  const status = r.status || 'inbox';
+  const sdef = STATUS_DEFS[status] || STATUS_DEFS.inbox;
+  let statusPill = `<span class="order-status" style="background:${sdef.bg};color:${sdef.color}"><span class="sdot" style="background:${sdef.color}"></span>${escapeHtml(sdef.label)}`;
+  if(status === 'planned' && r.dispatchDate){
+    statusPill += ` <span style="opacity:.7;font-size:10px;margin-left:3px">${escapeHtml(fmtPlanDate(r.dispatchDate))}</span>`;
   }
+  statusPill += `</span>`;
 
-  // Disable selection if not actionable
-  const checkboxAttrs = (cargoReady && !isDispatched && r.awb && r.awbOk)
+  // Secondary signal — what's blocking dispatch (only relevant when planned)
+  let secondaryHtml = '';
+  if(status === 'planned'){
+    if(!r.awb)              secondaryHtml = `<div class="row-status err" style="margin-top:3px">No AWB</div>`;
+    else if(!r.awbOk)       secondaryHtml = `<div class="row-status err" style="margin-top:3px">Bad AWB</div>`;
+    else if(!courierKey)    secondaryHtml = `<div class="row-status warn" style="margin-top:3px">Tag courier</div>`;
+    else if(cargoReady)     secondaryHtml = `<div class="status-pill ready" style="margin-top:3px">Cargo ready</div>`;
+    else                    secondaryHtml = `<div class="row-status warn" style="margin-top:3px">${escapeHtml(skipReason)}</div>`;
+  }
+  const statusHtml = statusPill + secondaryHtml;
+
+  // Disable selection if not actionable. Only planned + cargo-ready + valid AWB can be selected.
+  const checkboxAttrs = (status === 'planned' && cargoReady && !isDispatched && r.awb && r.awbOk)
     ? '' : 'disabled';
 
   const courierOpts = COURIER_OPTIONS.map(c =>
     `<option value="${c.key}" ${courierKey === c.key ? 'selected' : ''}>${c.label}</option>`
   ).join('');
 
-  // AWB cell — same rules as Today's Dispatch
+  // AWB cell
   let awbCell;
   const editBtn = `<button class="awb-edit-btn-batch" data-edit-awb="${r.id}" title="Edit AWB" style="background:transparent;border:1px solid var(--line);font-size:9.5px;padding:1px 5px;border-radius:3px;color:var(--ink-2);cursor:pointer;margin-left:3px">✎</button>`;
   if(!r.awb){
@@ -5153,13 +5185,12 @@ function renderBatchKpis(rows){
 function bindBatchFilters(){
   const f = State.batch.filters;
 
-  // Default date range = last 7 days
-  const today = new Date().toISOString().slice(0, 10);
-  const weekAgo = new Date(Date.now() - 7*24*60*60*1000).toISOString().slice(0, 10);
-  if(!f.from) f.from = weekAgo;
-  if(!f.to) f.to = today;
-  $('#batchFilterFrom').value = f.from;
-  $('#batchFilterTo').value = f.to;
+  // v1.2: no date default — show all planned orders regardless of dispatchDate.
+  // Dispatch team can pull forward future-planned orders if stock is available.
+  // (Old behavior was last-7-days against invoiceDate, which doesn't fit v1.2 lifecycle.)
+  $('#batchFilterFrom').value = f.from || '';
+  $('#batchFilterTo').value = f.to || '';
+  $('#batchFilterStatus').value = f.status || 'planned';
 
   $('#batchFilterFrom').addEventListener('change', e => { f.from = e.target.value; renderBatch(); });
   $('#batchFilterTo').addEventListener('change', e => { f.to = e.target.value; renderBatch(); });
@@ -5168,11 +5199,11 @@ function bindBatchFilters(){
   $('#batchFilterSearch').addEventListener('input', e => { f.search = e.target.value; renderBatch(); });
 
   $('#batchClearFilters').addEventListener('click', () => {
-    f.from = ''; f.to = ''; f.courier = 'all'; f.status = 'ready'; f.search = '';
+    f.from = ''; f.to = ''; f.courier = 'all'; f.status = 'planned'; f.search = '';
     $('#batchFilterFrom').value = '';
     $('#batchFilterTo').value = '';
     $('#batchFilterCourier').value = 'all';
-    $('#batchFilterStatus').value = 'ready';
+    $('#batchFilterStatus').value = 'planned';
     $('#batchFilterSearch').value = '';
     renderBatch();
   });
@@ -5333,9 +5364,20 @@ async function runDispatchBatch(){
     triggerDownload(invoicesBytes, `invoices_${dateStr}_${batchId}.pdf`);
   }
 
-  // Phase 5: Mark dispatched + save batch metadata
+  // Phase 5: Mark dispatched + save batch metadata + v1.2 status transition
   successRows.forEach(r => {
     State.dispatched[r.id] = { dispatchedAt: ts, batchId };
+    // v1.2: auto-transition planned → packed when label is generated.
+    // Strict: only promote if currently 'planned' (won't promote inbox/hold/cancel —
+    //   those shouldn't be in Pack & Ship anyway, but defensive).
+    const inv = State.invoices.find(x => x.id === r.id);
+    if(inv && inv.status === 'planned'){
+      try {
+        setOrderStatus(r.id, 'packed', { by: 'auto', reason: `dispatch batch ${batchId}` });
+      } catch(err) {
+        console.warn(`[TrackLens] Could not auto-transition ${r.id} to packed:`, err.message);
+      }
+    }
   });
   State.batch.selected.clear();
   const summary = {
