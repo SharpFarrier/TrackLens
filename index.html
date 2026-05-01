@@ -1609,12 +1609,15 @@
     <!-- Filter bar -->
     <div class="filter-bar">
       <div class="filter-group">
-        <label>From</label>
+        <label>Planned from</label>
         <input type="date" id="batchFilterFrom" />
       </div>
       <div class="filter-group">
         <label>To</label>
         <input type="date" id="batchFilterTo" />
+      </div>
+      <div class="filter-group" style="padding-top:18px">
+        <button class="btn ghost sm" id="batchFilterTodayBtn" title="Show only orders planned today">Today only</button>
       </div>
       <div class="filter-group">
         <label>Courier</label>
@@ -1629,10 +1632,10 @@
       <div class="filter-group">
         <label>Status</label>
         <select id="batchFilterStatus">
-          <option value="planned">Planned (ready to pack)</option>
-          <option value="packed">Packed (awaiting pickup)</option>
-          <option value="shipped">Shipped (picked up)</option>
           <option value="all">All</option>
+          <option value="dispatching">In Dispatch Queue</option>
+          <option value="packed">Packed</option>
+          <option value="shipped">Shipped</option>
         </select>
       </div>
       <div class="filter-group">
@@ -2712,15 +2715,16 @@ function parsePromiseDate(raw){
  */
 
 const STATUS_DEFS = {
-  inbox:     { label: 'Master Database',  short: 'Inbox',     color: '#888',     bg: '#f0f0f0',  next: ['planned', 'hold', 'cancel'] },
-  planned:   { label: 'Dispatch Today',   short: 'Planned',   color: '#1c5f95',  bg: '#eef5fa',  next: ['inbox', 'hold', 'cancel', 'packed'] },
-  hold:      { label: 'Hold',             short: 'Hold',      color: '#a16a0e',  bg: '#fbf0e2',  next: ['inbox', 'planned', 'cancel'] },
-  cancel:    { label: 'Cancelled',        short: 'Cancel',    color: '#a63333',  bg: '#fbeaea',  next: [] },  // terminal
-  packed:    { label: 'Packed',           short: 'Packed',    color: '#2d7d3a',  bg: '#e8f3ea',  next: ['planned', 'shipped', 'cancel'] },
-  shipped:   { label: 'Picked Up',        short: 'Shipped',   color: '#5b3aa6',  bg: '#ece5fa',  next: ['delivered', 'ndr', 'rto'] },
-  delivered: { label: 'Delivered',        short: 'Delivered', color: '#2d7d3a',  bg: '#e8f3ea',  next: [] },
-  ndr:       { label: 'NDR',              short: 'NDR',       color: '#c87914',  bg: '#fbf0e2',  next: ['shipped', 'rto', 'delivered'] },
-  rto:       { label: 'RTO',              short: 'RTO',       color: '#a63333',  bg: '#fbeaea',  next: [] }
+  inbox:       { label: 'Master Database',  short: 'Inbox',       color: '#888',     bg: '#f0f0f0',  next: ['planned', 'hold', 'cancel'] },
+  planned:     { label: 'Dispatch Today',   short: 'Planned',     color: '#1c5f95',  bg: '#eef5fa',  next: ['inbox', 'dispatching', 'hold', 'cancel'] },
+  dispatching: { label: 'In Dispatch Queue',short: 'Dispatching', color: '#c87914',  bg: '#fbf0e2',  next: ['planned', 'packed', 'cancel'] },  // Pack & Ship
+  hold:        { label: 'Hold',             short: 'Hold',        color: '#a16a0e',  bg: '#fbf0e2',  next: ['inbox', 'planned', 'cancel'] },
+  cancel:      { label: 'Cancelled',        short: 'Cancel',      color: '#a63333',  bg: '#fbeaea',  next: [] },  // terminal
+  packed:      { label: 'Packed',           short: 'Packed',      color: '#2d7d3a',  bg: '#e8f3ea',  next: ['dispatching', 'shipped', 'cancel'] },
+  shipped:     { label: 'Picked Up',        short: 'Shipped',     color: '#5b3aa6',  bg: '#ece5fa',  next: ['delivered', 'ndr', 'rto'] },
+  delivered:   { label: 'Delivered',        short: 'Delivered',   color: '#2d7d3a',  bg: '#e8f3ea',  next: [] },
+  ndr:         { label: 'NDR',              short: 'NDR',         color: '#c87914',  bg: '#fbf0e2',  next: ['shipped', 'rto', 'delivered'] },
+  rto:         { label: 'RTO',              short: 'RTO',         color: '#a63333',  bg: '#fbeaea',  next: [] }
 };
 
 const STATUS_KEYS = Object.keys(STATUS_DEFS);
@@ -4096,14 +4100,19 @@ function renderPicklistGroup(g){
 }
 
 function filterRowsWithUrgency(allRows){
-  let rows = allRows.slice();
+  // v1.2 Model A: Plan tab is the planning workspace.
+  // Only shows inbox (unplanned) and planned orders.
+  // dispatching/packed/shipped/hold/cancel belong in Pack & Ship or Track.
+  const PLAN_VISIBLE = new Set(['inbox', 'planned']);
+  let rows = allRows.filter(r => PLAN_VISIBLE.has(r.status || 'inbox'));
+
   // Existing filters
   switch(State.filter){
     case 'ready': rows = rows.filter(r => r.awb && r.awbOk && r.courier); break;
     case 'untagged': rows = rows.filter(r => !r.courier); break;
     case 'missing': rows = rows.filter(r => !r.awb || !r.awbOk); break;
   }
-  // v1.2 — Days-left bucket filter (replaces v1.1.3 urgency filter)
+  // v1.2 — Days-left bucket filter
   const f = State.planning.urgencyFilter;
   if(f && f !== 'all'){
     rows = rows.filter(r => r._daysLeft?.bucket === f);
@@ -4195,6 +4204,14 @@ function renderRow(r){
     statusFlag = `<span class="status-flag ready" title="Delhivery Direct integration in v1.1.3"><span class="pulse"></span>DD — v1.1.3</span>`;
   } else {
     statusFlag = `<span class="status-flag ready"><span class="pulse"></span>Ready</span>`;
+  }
+
+  // v1.2 Model A: "Return to Plan" button — moves dispatching → planned
+  // Available on dispatching orders only (packed/shipped are past the point of return)
+  if(status === 'dispatching'){
+    actionCell += `<button class="btn ghost sm" data-return-to-plan="${r.id}"
+      style="font-size:11px;padding:4px 8px;margin-left:4px;color:#a16a0e;border-color:#a16a0e"
+      title="Move this order back to Plan tab">↩ Return to Plan</button>`;
   }
 
   const checked = State.selected.has(r.id) ? 'checked' : '';
@@ -4960,23 +4977,31 @@ function batchFilteredRows(){
   const lo = f.from ? f.from : null;
   const hi = f.to ? f.to : null;
 
+  // v1.2 Model A: Pack & Ship shows only dispatching/packed/shipped.
+  const PACK_VISIBLE = new Set(['dispatching', 'packed', 'shipped']);
+
   return State.invoices
     .map(applyAwbOverride)
     .filter(r => {
       const status = r.status || 'inbox';
+      if(!PACK_VISIBLE.has(status)) return false;
 
-      // Status filter dropdown — controls what's visible. No hard gate.
-      if(f.status === 'planned' && status !== 'planned') return false;
-      if(f.status === 'packed'  && status !== 'packed')  return false;
-      if(f.status === 'shipped' && status !== 'shipped') return false;
-      // 'all' = show everything
+      // Status filter dropdown
+      if(f.status === 'dispatching' && status !== 'dispatching') return false;
+      if(f.status === 'packed'      && status !== 'packed')      return false;
+      if(f.status === 'shipped'     && status !== 'shipped')     return false;
 
-      // Date filter — against dispatchDate only, skip if null
+      // Date filter — against when order entered dispatching
       if(lo || hi){
-        const sortDate = r.dispatchDate || null;
-        if(sortDate){
-          if(lo && sortDate < lo) return false;
-          if(hi && sortDate > hi) return false;
+        let planDate = null;
+        if(Array.isArray(r.statusHistory)){
+          const ev = [...r.statusHistory].reverse().find(e => e.to === 'dispatching');
+          if(ev?.at) planDate = ev.at.slice(0, 10);
+        }
+        planDate = planDate || r.dispatchDate || null;
+        if(planDate){
+          if(lo && planDate < lo) return false;
+          if(hi && planDate > hi) return false;
         }
       }
 
@@ -4997,12 +5022,10 @@ function batchFilteredRows(){
       return true;
     })
     .sort((a, b) => {
-      // Sort: planned first → packed → shipped → others
-      const order = { planned:0, packed:1, shipped:2 };
+      const order = { dispatching:0, packed:1, shipped:2 };
       const aO = order[a.status || ''] ?? 3;
       const bO = order[b.status || ''] ?? 3;
       if(aO !== bO) return aO - bO;
-      // Within same status: dispatchDate ASC, then days-left ASC
       const aDate = a.dispatchDate || a.invoiceDate || '';
       const bDate = b.dispatchDate || b.invoiceDate || '';
       if(aDate !== bDate) return aDate.localeCompare(bDate);
@@ -5079,6 +5102,25 @@ function renderBatch(){
       }
     });
   });
+
+  // v1.2 Model A: Return to Plan — moves dispatching → planned
+  tbody.querySelectorAll('[data-return-to-plan]').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.returnToPlan;
+      const inv = State.invoices.find(x => x.id === id);
+      if(!inv) return;
+      try {
+        setOrderStatus(id, 'planned', { by: 'manual', reason: 'returned to Plan tab' });
+        State.batch.selected.delete(id);
+        toast(`Order ${inv.orderId} returned to Plan tab`, 'success', 2500);
+        renderBatch();
+        renderDispatch();
+        renderInbox();
+      } catch(err) {
+        toast(err.message, 'error', 3000);
+      }
+    });
+  });
 }
 
 function renderBatchRow(r){
@@ -5100,6 +5142,27 @@ function renderBatchRow(r){
   }
   statusPill += `</span>`;
 
+  // "Planned on" timestamp — when was this order moved to planned?
+  // Pulled from statusHistory. Lets user distinguish today's batch from older saved plans.
+  let plannedOnHtml = '';
+  if(status === 'planned' && Array.isArray(r.statusHistory)){
+    const planEvent = [...r.statusHistory].reverse().find(e => e.to === 'planned');
+    if(planEvent && planEvent.at){
+      const planTs = new Date(planEvent.at);
+      const today = new Date().toISOString().slice(0, 10);
+      const planDate = planEvent.at.slice(0, 10);
+      const isToday = planDate === today;
+      const label = isToday
+        ? `Planned today ${planTs.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })}`
+        : `Planned ${fmtPlanDate(planDate)}`;
+      const color = isToday ? '#2d7d3a' : '#a16a0e';
+      plannedOnHtml = `<div style="font-size:10px;color:${color};margin-top:2px">${escapeHtml(label)}</div>`;
+    } else if(r.statusHistory.length === 0){
+      // Migrated from v1.1 — no history. Show migration note.
+      plannedOnHtml = `<div style="font-size:10px;color:var(--ink-3);margin-top:2px">From previous session</div>`;
+    }
+  }
+
   // Secondary signal — what's blocking dispatch (only relevant when planned)
   let secondaryHtml = '';
   if(status === 'planned'){
@@ -5109,10 +5172,10 @@ function renderBatchRow(r){
     else if(cargoReady)     secondaryHtml = `<div class="status-pill ready" style="margin-top:3px">Cargo ready</div>`;
     else                    secondaryHtml = `<div class="row-status warn" style="margin-top:3px">${escapeHtml(skipReason)}</div>`;
   }
-  const statusHtml = statusPill + secondaryHtml;
+  const statusHtml = statusPill + plannedOnHtml + secondaryHtml;
 
-  // Disable selection if not actionable. Only planned + cargo-ready + valid AWB can be selected.
-  const checkboxAttrs = (status === 'planned' && cargoReady && !isDispatched && r.awb && r.awbOk)
+  // Disable selection only for packed/shipped orders (already done)
+  const checkboxAttrs = (status === 'dispatching' && cargoReady && r.awb && r.awbOk)
     ? '' : 'disabled';
 
   const courierOpts = COURIER_OPTIONS.map(c =>
@@ -5225,8 +5288,8 @@ function bindBatchFilters(){
   // so old persisted dates would silently hide all results.
   f.from = '';
   f.to = '';
-  if(f.status === 'ready' || f.status === 'dispatched') f.status = 'planned';
-  // v1.2 default: show all orders in Pack & Ship, user narrows with filter
+  // v1.2 Model A: migrate any stale planned/ready/dispatched filter values
+  if(['planned', 'ready', 'dispatched'].includes(f.status)) f.status = 'dispatching';
   f.status = f.status || 'all';
 
   $('#batchFilterFrom').value = '';
@@ -5237,6 +5300,15 @@ function bindBatchFilters(){
   $('#batchFilterTo').addEventListener('change', e => { f.to = e.target.value; renderBatch(); });
   $('#batchFilterCourier').addEventListener('change', e => { f.courier = e.target.value; renderBatch(); });
   $('#batchFilterStatus').addEventListener('change', e => { f.status = e.target.value; renderBatch(); });
+
+  const todayBtn = $('#batchFilterTodayBtn');
+  if(todayBtn) todayBtn.addEventListener('click', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    f.from = today; f.to = today;
+    $('#batchFilterFrom').value = today;
+    $('#batchFilterTo').value = today;
+    renderBatch();
+  });
   $('#batchFilterSearch').addEventListener('input', e => { f.search = e.target.value; renderBatch(); });
 
   $('#batchClearFilters').addEventListener('click', () => {
@@ -5412,7 +5484,7 @@ async function runDispatchBatch(){
     // Strict: only promote if currently 'planned' (won't promote inbox/hold/cancel —
     //   those shouldn't be in Pack & Ship anyway, but defensive).
     const inv = State.invoices.find(x => x.id === r.id);
-    if(inv && inv.status === 'planned'){
+    if(inv && inv.status === 'dispatching'){
       try {
         setOrderStatus(r.id, 'packed', { by: 'auto', reason: `dispatch batch ${batchId}` });
       } catch(err) {
@@ -5746,18 +5818,31 @@ function bindFilters(){
   const printBtn = $('#printPicklistBtn');
   if(printBtn) printBtn.addEventListener('click', () => window.print());
 
-  // v1.1.3 — Send to Dispatch
+  // v1.2 — Send to Pack & Ship: transitions selected planned orders → dispatching
   $('#sendToDispatchBtn').addEventListener('click', () => {
     if(State.selected.size === 0){ toast('Nothing selected', 'error'); return; }
-    // Migrate selection from Today's Dispatch (State.selected) into batch (State.batch.selected)
-    State.selected.forEach(id => State.batch.selected.add(id));
-    // Switch tabs
+    const toSend = [...State.selected].filter(id => {
+      const inv = State.invoices.find(r => r.id === id);
+      return inv && inv.status === 'planned';
+    });
+    if(toSend.length === 0){
+      toast('No planned orders selected — plan orders on Plan tab first', 'error', 3000);
+      return;
+    }
+    // Transition planned → dispatching
+    const result = setOrderStatusBulk(toSend, 'dispatching', { by: 'manual', reason: 'sent to Pack & Ship' });
+    // Also add to batch.selected so Pack & Ship checkboxes are pre-ticked
+    toSend.forEach(id => State.batch.selected.add(id));
+    State.selected.clear();
+    // Switch to Pack & Ship tab
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
     document.querySelector('[data-panel="pack"]').classList.add('active');
     document.querySelector('#panel-pack').classList.add('active');
+    renderDispatch();
     if(typeof renderBatch === 'function') renderBatch();
-    toast(`${State.selected.size} orders sent to Dispatch tab`, 'success', 3000);
+    toast(`${result.count} order${result.count === 1 ? '' : 's'} sent to Pack & Ship`, 'success', 3000);
+    if(result.errors.length) console.warn('[TrackLens] Send errors:', result.errors);
   });
 }
 
