@@ -4960,33 +4960,24 @@ function batchFilteredRows(){
   const lo = f.from ? f.from : null;
   const hi = f.to ? f.to : null;
 
-  // v1.2 — Pack & Ship is the action layer. Only show orders that have been planned.
-  // EXCLUDES inbox / hold / cancel orders. To dispatch an unplanned order, user must
-  // first move it to 'planned' from the Plan tab or status menu on Master Database.
-  const PACK_VISIBLE_STATUSES = new Set(['planned', 'packed', 'shipped']);
-
   return State.invoices
     .map(applyAwbOverride)
     .filter(r => {
       const status = r.status || 'inbox';
-      // Hard gate — only planned/packed/shipped orders enter Pack & Ship
-      if(!PACK_VISIBLE_STATUSES.has(status)) return false;
 
-      // Status filter chip
+      // Status filter dropdown — controls what's visible. No hard gate.
       if(f.status === 'planned' && status !== 'planned') return false;
-      if(f.status === 'packed' && status !== 'packed') return false;
+      if(f.status === 'packed'  && status !== 'packed')  return false;
       if(f.status === 'shipped' && status !== 'shipped') return false;
-      // 'all' = show all three
+      // 'all' = show everything
 
-      // Date filter — against dispatchDate only.
-      // If dispatchDate is null (order was moved to planned without a date), skip date filter.
+      // Date filter — against dispatchDate only, skip if null
       if(lo || hi){
         const sortDate = r.dispatchDate || null;
         if(sortDate){
           if(lo && sortDate < lo) return false;
           if(hi && sortDate > hi) return false;
         }
-        // If no dispatchDate: always show (no date to filter against)
       }
 
       // Courier filter
@@ -4997,6 +4988,7 @@ function batchFilteredRows(){
           if(r.courier !== f.courier) return false;
         }
       }
+
       // Search
       if(s){
         const hay = `${r.invoiceNo} ${r.orderId} ${r.awb} ${r.customerName} ${r.sku}`.toLowerCase();
@@ -5004,18 +4996,19 @@ function batchFilteredRows(){
       }
       return true;
     })
-    // Sort by dispatchDate ASC — orders planned for today first, then tomorrow, etc.
-    // Within same date, urgency (days-left) wins.
     .sort((a, b) => {
+      // Sort: planned first → packed → shipped → others
+      const order = { planned:0, packed:1, shipped:2 };
+      const aO = order[a.status || ''] ?? 3;
+      const bO = order[b.status || ''] ?? 3;
+      if(aO !== bO) return aO - bO;
+      // Within same status: dispatchDate ASC, then days-left ASC
       const aDate = a.dispatchDate || a.invoiceDate || '';
       const bDate = b.dispatchDate || b.invoiceDate || '';
       if(aDate !== bDate) return aDate.localeCompare(bDate);
-      // Same date — sort by urgency (days-left ascending)
       const aDl = computeDaysLeft(a);
       const bDl = computeDaysLeft(b);
-      const aV = aDl.hasPromise ? aDl.value : Infinity;
-      const bV = bDl.hasPromise ? bDl.value : Infinity;
-      return aV - bV;
+      return (aDl.hasPromise ? aDl.value : Infinity) - (bDl.hasPromise ? bDl.value : Infinity);
     });
 }
 
@@ -5232,11 +5225,13 @@ function bindBatchFilters(){
   // so old persisted dates would silently hide all results.
   f.from = '';
   f.to = '';
-  if(f.status === 'ready' || f.status === 'dispatched') f.status = 'planned'; // v1.1 → v1.2 migration
+  if(f.status === 'ready' || f.status === 'dispatched') f.status = 'planned';
+  // v1.2 default: show all orders in Pack & Ship, user narrows with filter
+  f.status = f.status || 'all';
 
   $('#batchFilterFrom').value = '';
   $('#batchFilterTo').value = '';
-  $('#batchFilterStatus').value = f.status || 'planned';
+  $('#batchFilterStatus').value = f.status;
 
   $('#batchFilterFrom').addEventListener('change', e => { f.from = e.target.value; renderBatch(); });
   $('#batchFilterTo').addEventListener('change', e => { f.to = e.target.value; renderBatch(); });
@@ -5245,11 +5240,11 @@ function bindBatchFilters(){
   $('#batchFilterSearch').addEventListener('input', e => { f.search = e.target.value; renderBatch(); });
 
   $('#batchClearFilters').addEventListener('click', () => {
-    f.from = ''; f.to = ''; f.courier = 'all'; f.status = 'planned'; f.search = '';
+    f.from = ''; f.to = ''; f.courier = 'all'; f.status = 'all'; f.search = '';
     $('#batchFilterFrom').value = '';
     $('#batchFilterTo').value = '';
     $('#batchFilterCourier').value = 'all';
-    $('#batchFilterStatus').value = 'planned';
+    $('#batchFilterStatus').value = 'all';
     $('#batchFilterSearch').value = '';
     renderBatch();
   });
