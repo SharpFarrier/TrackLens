@@ -2880,8 +2880,6 @@ function migrateSelectedToPlanned(){
       promoted++;
     }
     // Case 2: dispatching → revert to planned (Model A clean start)
-    // Any order stuck in dispatching from pre-Model-A debugging sessions
-    // belongs back on Plan tab so user explicitly controls what goes to Pack & Ship.
     if(inv.status === 'dispatching'){
       inv.status = 'planned';
       inv.statusHistory = inv.statusHistory || [];
@@ -2893,10 +2891,14 @@ function migrateSelectedToPlanned(){
     }
   });
 
+  // Always clear stale batch selection — Pack & Ship only shows dispatching/packed/shipped,
+  // so any persisted selection IDs pointing at planned orders are meaningless noise.
+  if(State.batch?.selected instanceof Set) State.batch.selected.clear();
+
   if(promoted > 0){
     console.log(`[TrackLens] Migration: reset ${promoted} orders to planned for Model A clean start`);
-    persistLocal();
   }
+  persistLocal();  // always save clean state, even if nothing was promoted
 }
 
 /* Suggested dispatch date for an order — based on promise date and zone transit.
@@ -5078,7 +5080,9 @@ function renderBatch(){
   // Update tab badge — number of selected
   // v1.2: tab badge renamed from batchCount to packCount
   const packCountEl = $('#packCount');
-  if(packCountEl) packCountEl.textContent = State.batch.selected.size;
+  // v1.2: tab badge = number of orders in dispatch queue (dispatching status)
+  const dispatchingCount = (State.invoices || []).filter(r => r.status === 'dispatching').length;
+  if(packCountEl) packCountEl.textContent = dispatchingCount;
 
   // Bind row checkbox + courier dropdown handlers
   tbody.querySelectorAll('.batch-row-cb').forEach(el => {
@@ -5280,8 +5284,8 @@ function renderBatchKpis(rows){
   const cargoReady = selectedRows.filter(r => r.courier === 'cargo' && r.awb && r.awbOk).length;
   const skipping = selectedRows.length - cargoReady;
 
-  setText('#batchSelectedCount', sel.size);
-  setText('#batchSelectedSub', `of ${rows.length} matching · ${selectedRows.length} on this page`);
+  setText('#batchSelectedCount', selectedRows.length);
+  setText('#batchSelectedSub', `of ${rows.length} matching`);
   setText('#batchCargoReady', cargoReady);
   setText('#batchSkipCount', skipping);
   setText('#batchSkipSub', skipping === 0 ? 'all selected are Cargo' : 'BD/Delhivery direct');
