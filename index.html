@@ -1685,14 +1685,13 @@
             <th style="width:30px"><input type="checkbox" class="batch-checkbox" id="batchSelectAllCb" /></th>
             <th>Invoice</th>
             <th>Order ID</th>
-            <th>Date</th>
+            <th>Dispatch Date</th>
             <th>AWB</th>
             <th>Customer</th>
             <th>Courier</th>
             <th>Status</th>
           </tr>
-        </thead>
-        <tbody id="batchTableBody">
+        </thead><tbody id="batchTableBody">
           <tr><td colspan="8" style="text-align:center;color:var(--ink-3);padding:40px">Import orders from "Today's Dispatch" tab to begin.</td></tr>
         </tbody>
       </table>
@@ -5219,7 +5218,13 @@ function renderBatchRow(r){
             data-id="${r.id}" ${isSelected ? 'checked' : ''} ${checkboxAttrs} /></td>
       <td><span class="mono" style="font-size:11px">${shorten(r.invoiceNo, 18)}</span></td>
       <td><span class="mono" style="font-size:11px">${shorten(r.orderId, 22)}</span></td>
-      <td>${r.invoiceDate || '—'}</td>
+      <td>
+        ${r.dispatchDate
+          ? `<span style="font-weight:500">${escapeHtml(fmtPlanDate(r.dispatchDate))}</span>
+             <div style="font-size:10px;color:var(--ink-3)">inv: ${escapeHtml(r.invoiceDate||'')}</div>`
+          : `<span style="color:var(--ink-3)">${escapeHtml(r.invoiceDate||'—')}</span>`
+        }
+      </td>
       <td>${awbCell}</td>
       <td>${escapeHtml(r.customerName || '—')}<br>
           <span style="color:var(--ink-3);font-size:10.5px">${escapeHtml(r.pincode)} ${escapeHtml(r.state)}</span></td>
@@ -5839,17 +5844,25 @@ function bindFilters(){
   // v1.2 — Send to Pack & Ship: transitions selected planned orders → dispatching
   $('#sendToDispatchBtn').addEventListener('click', () => {
     if(State.selected.size === 0){ toast('Nothing selected', 'error'); return; }
+    const today = new Date().toISOString().slice(0, 10);
     const toSend = [...State.selected].filter(id => {
       const inv = State.invoices.find(r => r.id === id);
-      return inv && inv.status === 'planned';
+      return inv && (inv.status === 'planned' || inv.status === 'inbox');
     });
     if(toSend.length === 0){
-      toast('No planned orders selected — plan orders on Plan tab first', 'error', 3000);
+      toast('Select orders from the Plan tab first', 'error', 3000);
       return;
     }
-    // Transition planned → dispatching
+    // Inbox orders need a dispatchDate set before transitioning
+    toSend.forEach(id => {
+      const inv = State.invoices.find(r => r.id === id);
+      if(inv && inv.status === 'inbox' && !inv.dispatchDate){
+        inv.dispatchDate = today;
+      }
+    });
+    // Transition planned/inbox → dispatching
     const result = setOrderStatusBulk(toSend, 'dispatching', { by: 'manual', reason: 'sent to Pack & Ship' });
-    // Also add to batch.selected so Pack & Ship checkboxes are pre-ticked
+    // Pre-tick in Pack & Ship
     toSend.forEach(id => State.batch.selected.add(id));
     State.selected.clear();
     // Switch to Pack & Ship tab
@@ -5859,6 +5872,7 @@ function bindFilters(){
     document.querySelector('#panel-pack').classList.add('active');
     renderDispatch();
     if(typeof renderBatch === 'function') renderBatch();
+    const skipped = State.selected.size;
     toast(`${result.count} order${result.count === 1 ? '' : 's'} sent to Pack & Ship`, 'success', 3000);
     if(result.errors.length) console.warn('[TrackLens] Send errors:', result.errors);
   });
