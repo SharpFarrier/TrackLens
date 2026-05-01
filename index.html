@@ -2864,11 +2864,12 @@ function migrateLegacyStatuses(){
 function migrateSelectedToPlanned(){
   if(!State.invoices || State.invoices.length === 0) return;
   const sel = State.batch?.selected;
-  if(!(sel instanceof Set) || sel.size === 0) return;
   const today = new Date().toISOString().slice(0, 10);
   let promoted = 0;
+
   State.invoices.forEach(inv => {
-    if(inv.status === 'inbox' && sel.has(inv.id)){
+    // Case 1: inbox + was in v1.1 batch selection → promote to planned
+    if(inv.status === 'inbox' && sel instanceof Set && sel.has(inv.id)){
       inv.status = 'planned';
       inv.dispatchDate = inv.dispatchDate || today;
       inv.statusHistory = inv.statusHistory || [];
@@ -2878,9 +2879,22 @@ function migrateSelectedToPlanned(){
       });
       promoted++;
     }
+    // Case 2: dispatching → revert to planned (Model A clean start)
+    // Any order stuck in dispatching from pre-Model-A debugging sessions
+    // belongs back on Plan tab so user explicitly controls what goes to Pack & Ship.
+    if(inv.status === 'dispatching'){
+      inv.status = 'planned';
+      inv.statusHistory = inv.statusHistory || [];
+      inv.statusHistory.push({
+        from: 'dispatching', to: 'planned', at: new Date().toISOString(),
+        by: 'migration', reason: 'Model A clean start — reset from pre-v1.2 session'
+      });
+      promoted++;
+    }
   });
+
   if(promoted > 0){
-    console.log(`[TrackLens] Promoted ${promoted} inbox+selected orders to planned (v1.1→v1.2 migration)`);
+    console.log(`[TrackLens] Migration: reset ${promoted} orders to planned for Model A clean start`);
     persistLocal();
   }
 }
