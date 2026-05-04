@@ -6764,10 +6764,24 @@ async function runTrackingSync(onProgress){
   const cutoff = new Date(today.getTime() - TRACKING_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const fmt = d => d.toISOString().slice(0, 10);
 
-  // Get all orders with AWBs in the lookback window
-  const ordersWithAwb = State.invoices.filter(r => {
-    if(!r.awb || !r.awbOk) return false;
-    // Include if invoice date is within lookback, OR status is already shipped/packed (still needs tracking)
+  // Full coverage analysis — categorise every order with an AWB
+  const allWithAwb = State.invoices.filter(r => r.awb);
+  const coverage = {
+    cargoPattern:   allWithAwb.filter(r => r.awbOk && /^2089\d{10}$/.test(String(r.awb).trim())),
+    bdPattern:      allWithAwb.filter(r => r.awbOk && /^[56]\d{9,13}$/.test(String(r.awb).trim())),
+    badAwb:         allWithAwb.filter(r => !r.awbOk),
+    otherAwb:       allWithAwb.filter(r => r.awbOk && !/^2089\d{10}$/.test(String(r.awb).trim()) && !/^[56]\d{9,13}$/.test(String(r.awb).trim()))
+  };
+  console.log('[TrackLens][Sync] Coverage analysis:',
+    `\n  Cargo pattern (2089...): ${coverage.cargoPattern.length}`,
+    `\n  BD pattern (5/6...): ${coverage.bdPattern.length}`,
+    `\n  Bad AWB (corrupted): ${coverage.badAwb.length}`,
+    `\n  Other/unknown pattern: ${coverage.otherAwb.length}`,
+    `\n  Sample other AWBs:`, coverage.otherAwb.slice(0,10).map(r=>`${r.awb}(${r.courier||'untagged'})`)
+  );
+
+  const ordersWithAwb = allWithAwb.filter(r => {
+    if(!r.awbOk) return false;
     const invDate = r.invoiceDate ? new Date(r.invoiceDate) : null;
     const inWindow = invDate && invDate >= cutoff;
     const activeStatus = ['dispatching','packed','shipped','ndr'].includes(r.status||'inbox');
