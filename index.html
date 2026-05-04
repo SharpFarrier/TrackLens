@@ -6902,70 +6902,59 @@ async function runTrackingSync(onProgress){
   return report;
 }
 
-/* Fetch all Cargo shipments in a date range and return AWB → status map.
- * Uses pickup_date filter since that's what Cargo supports.
+/* Fetch all Cargo shipments using next-URL pagination (no status filter = All Shipments).
+ * AWB field confirmed as waybill_no. Pagination via meta.pagination.next URL.
+ * count is always null in Cargo API — we paginate until next=null.
  */
 async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
   const statusMap = {};
-  const trackStatuses = ['ready_to_ship', 'pickup_scheduled', 'pickup_generated', 'in_transit', 'out_for_delivery', 'delivered', 'rto', 'ndr'];
-  const awbFields = ['waybill_no', 'awb', 'awb_code', 'awb_number', 'tracking_id', 'awb_no', 'waybill'];
-  let totalFound = 0;
+  let page = 1;
+  let totalFetched = 0;
 
-  for(const status of trackStatuses){
-    let page = 1;
-    let hasMore = true;
-    while(hasMore){
-      const qs = new URLSearchParams({
-        page: String(page),
-        page_size: '100',
-        status,
-        // Use created_at filter — confirmed working from label fetch flow
-        created_at_after:  dateFrom,
-        created_at_before: dateTo,
-        entity: 'shipment'
-      });
-      let data;
+  // No status filter = all shipments, same as the "All Shipments" tab in Cargo panel
+  const firstQs = new URLSearchParams({
+    page: '1', page_size: '100', entity: 'shipment',
+    created_at_after: dateFrom, created_at_before: dateTo
+  });
+  let path = '/shipment-list/?' + firstQs.toString();
+
+  while(path){
+    let data;
+    try{
+      data = await cargoFetch(path);
+    } catch(err){
+      console.warn('[TrackLens][Sync] Cargo page', page, 'failed:', err.message);
+      break;
+    }
+    const list = extractShipmentList(data);
+    if(page === 1) console.log('[TrackLens][Sync] Cargo all-shipments: page1 returned', list.length, 'rows');
+
+    list.forEach(s => {
+      const awb = String(s.waybill_no || '').trim();
+      if(awb.length > 5){
+        statusMap[awb] = {
+          tlStatus: mapCargoStatus(s.status || 'in_transit'),
+          statusLabel: s.status || 'in_transit',
+          shipmentId: s.id
+        };
+        totalFetched++;
+      }
+    });
+
+    // Follow next URL — Cargo API uses next/previous links, count is always null
+    const nextFull = data?.meta?.pagination?.next || null;
+    if(nextFull && list.length > 0){
       try{
-        data = await cargoFetch('/shipment-list/?' + qs.toString());
-      } catch(err){
-        console.warn(`[TrackLens][Sync] Cargo status=${status} page=${page} failed:`, err.message);
-        break;
-      }
-      const list = extractShipmentList(data);
-      if(page === 1){
-        const total = data?.meta?.pagination?.total || data?.total || list.length;
-        console.log(`[TrackLens][Sync] Cargo status=${status}: ${total} total, page returned ${list.length} rows`);
-        if(list[0]){
-          const keys = Object.keys(list[0]);
-          console.log(`[TrackLens][Sync] First row keys:`, keys);
-          // Log the raw first row so we can see AWB field name + value
-          const awbFields2 = keys.filter(k => k.toLowerCase().includes('awb') || k.toLowerCase().includes('waybill') || k.toLowerCase().includes('tracking'));
-          console.log(`[TrackLens][Sync] AWB-related fields in first row:`, awbFields2.map(k => `${k}=${list[0][k]}`));
-        }
-      }
-      list.forEach(s => {
-        // Try all known AWB field names
-        const awb = awbFields.map(f => String(s[f]||'')).find(v => v.length > 5);
-        if(awb){
-          statusMap[awb] = {
-            tlStatus: mapCargoStatus(status),
-            statusLabel: status,
-            shipmentId: s.id,
-            raw: s
-          };
-          totalFound++;
-        }
-      });
-      // Paginate: Cargo API returns total=0 even when more pages exist.
-      // Always fetch next page if current page returned a full 100 rows.
-      hasMore = list.length === 100;
-      page++;
-      if(hasMore) await new Promise(r => setTimeout(r, 200));
+        const u = new URL(nextFull);
+        path = u.pathname.replace('/api','') + u.search;
+        page++;
+        await new Promise(r => setTimeout(r, 150));
+      } catch(e){ path = null; }
+    } else {
+      path = null;
     }
   }
-  console.log('[TrackLens][Sync] Cargo statusMap AWBs (first 10):', Object.keys(statusMap).slice(0,10));
-  console.log('[TrackLens][Sync] TrackLens AWBs (first 10):', State.invoices.filter(r=>r.awb).slice(0,10).map(r=>r.awb));
-  console.log('[TrackLens][Sync] Cargo: total', totalFound, 'shipments found,', Object.keys(statusMap).length, 'unique AWBs');
+  console.log('[TrackLens][Sync] Cargo: fetched', totalFetched, 'shipments across', page, 'pages,', Object.keys(statusMap).length, 'unique AWBs');
   return statusMap;
 }
 
