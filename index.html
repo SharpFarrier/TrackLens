@@ -6891,8 +6891,14 @@ async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
       const list = extractShipmentList(data);
       if(page === 1){
         const total = data?.meta?.pagination?.total || data?.total || list.length;
-        console.log(`[TrackLens][Sync] Cargo status=${status}: ${total} total shipments`);
-        if(list[0]) console.log(`[TrackLens][Sync] First row keys:`, Object.keys(list[0]));
+        console.log(`[TrackLens][Sync] Cargo status=${status}: ${total} total, page returned ${list.length} rows`);
+        if(list[0]){
+          const keys = Object.keys(list[0]);
+          console.log(`[TrackLens][Sync] First row keys:`, keys);
+          // Log the raw first row so we can see AWB field name + value
+          const awbFields2 = keys.filter(k => k.toLowerCase().includes('awb') || k.toLowerCase().includes('waybill') || k.toLowerCase().includes('tracking'));
+          console.log(`[TrackLens][Sync] AWB-related fields in first row:`, awbFields2.map(k => `${k}=${list[0][k]}`));
+        }
       }
       list.forEach(s => {
         // Try all known AWB field names
@@ -6914,7 +6920,9 @@ async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
       if(hasMore) await new Promise(r => setTimeout(r, 200));
     }
   }
-  console.log(`[TrackLens][Sync] Cargo: ${totalFound} shipments found across all statuses, ${Object.keys(statusMap).length} unique AWBs`);
+  console.log('[TrackLens][Sync] Cargo statusMap AWBs (first 10):', Object.keys(statusMap).slice(0,10));
+  console.log('[TrackLens][Sync] TrackLens AWBs (first 10):', State.invoices.filter(r=>r.awb).slice(0,10).map(r=>r.awb));
+  console.log('[TrackLens][Sync] Cargo: total', totalFound, 'shipments found,', Object.keys(statusMap).length, 'unique AWBs');
   return statusMap;
 }
 
