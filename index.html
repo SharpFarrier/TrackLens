@@ -6830,12 +6830,17 @@ async function runTrackingSync(onProgress){
         // Auto-tag courier
         const inv = State.invoices.find(x => x.awb && String(x.awb).trim() === String(awb).trim());
         if(inv && !inv.courier) inv.courier = 'bluedart';
-        report.results[awb] = { status: r.status, source: 'bluedart', statusLabel: r.statusDesc };
+        report.results[awb] = { status: r.status, source: 'bluedart', statusLabel: r.statusDesc || r.lastEvent };
         report.bdChecked++;
       } else {
         report.errors.push({ source: 'bluedart', awb, error: r.errorMsg });
       }
     });
+    // Log first 5 BD results so we can see what's coming back
+    const bdSample = Object.entries(bdResults).filter(([,r])=>!r.isError).slice(0,5);
+    console.log('[TrackLens][Sync] BD sample results:', bdSample.map(([awb,r])=>
+      `AWB=${awb} status=${r.status} statusCode=${r.statusCode} desc="${r.statusDesc}" lastEvent="${r.lastEvent}"`
+    ));
   }
 
   // ── APPLY RESULTS ──
@@ -6951,41 +6956,39 @@ function mapCargoStatus(cargoStatus){
  */
 function applyTrackingResults(results){
   let advanced = 0;
+  let notFound = 0;
+  let alreadyAdvanced = 0;
   Object.entries(results).forEach(([awb, r]) => {
     if(r.isError) return;
-    // Normalize AWB for matching — trim whitespace, treat as string
     const normAwb = String(awb).trim();
     const inv = State.invoices.find(x => x.awb && String(x.awb).trim() === normAwb);
-    if(!inv) return;
-    // Store tracking info
+    if(!inv){ notFound++; return; }
     inv.lastTracking = {
       fetchedAt: new Date().toISOString(),
       status: r.status,
       source: r.source,
       statusLabel: r.statusLabel
     };
-    // Auto-advance — never downgrade, use force=true to skip transition guards
     const currentRank = statusRank(inv.status || 'inbox');
     const newRank = statusRank(r.status);
-    if(newRank > currentRank){
-      const reason = `${r.source} confirmed ${r.statusLabel}`;
-      try{
-        if(r.status === 'delivered'){
-          setOrderStatus(inv.id, 'delivered', { by:'auto', reason, force: true });
-          advanced++;
-        } else if(r.status === 'rto'){
-          setOrderStatus(inv.id, 'rto', { by:'auto', reason, force: true });
-          advanced++;
-        } else if(r.status === 'ndr'){
-          setOrderStatus(inv.id, 'ndr', { by:'auto', reason, force: true });
-          advanced++;
-        } else if(r.status === 'shipped'){
-          setOrderStatus(inv.id, 'shipped', { by:'auto', reason, force: true });
-          advanced++;
-        }
-      } catch(err){
-        console.warn('[TrackLens][Sync] Could not advance', inv.orderId, ':', err.message);
+    if(newRank <= currentRank){ alreadyAdvanced++; return; }
+    const reason = `${r.source} confirmed ${r.statusLabel}`;
+    try{
+      if(r.status === 'delivered'){
+        setOrderStatus(inv.id, 'delivered', { by:'auto', reason, force: true });
+        advanced++;
+      } else if(r.status === 'rto'){
+        setOrderStatus(inv.id, 'rto', { by:'auto', reason, force: true });
+        advanced++;
+      } else if(r.status === 'ndr'){
+        setOrderStatus(inv.id, 'ndr', { by:'auto', reason, force: true });
+        advanced++;
+      } else if(r.status === 'shipped'){
+        setOrderStatus(inv.id, 'shipped', { by:'auto', reason, force: true });
+        advanced++;
       }
+    } catch(err){
+      console.warn('[TrackLens][Sync] Could not advance', inv.orderId, ':', err.message);
     }
   });
   if(advanced > 0){
@@ -6994,7 +6997,7 @@ function applyTrackingResults(results){
     renderDispatch();
     if(typeof renderBatch === 'function') renderBatch();
   }
-  console.log('[TrackLens][Sync] applyTrackingResults:', Object.keys(results).length, 'results,', advanced, 'advanced');
+  console.log(`[TrackLens][Sync] applyTrackingResults: ${Object.keys(results).length} results → ${advanced} advanced, ${alreadyAdvanced} already at correct status, ${notFound} AWBs not found in TrackLens`);
   return advanced;
 }
 
