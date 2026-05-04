@@ -6802,18 +6802,22 @@ async function runTrackingSync(onProgress){
     try{
       const cargoStatuses = await fetchCargoTrackingBulk(fmt(cutoff), fmt(today), onProgress, report);
       console.log('[TrackLens][Sync] Cargo returned', Object.keys(cargoStatuses).length, 'unique AWBs');
-      // Match against ALL orders (not just cargo-tagged ones) — auto-tag courier if matched
+      // Match against ALL orders — auto-tag courier + store tracking result
+      let cargoTagged = 0;
       State.invoices.forEach(r => {
         if(!r.awb || !r.awbOk) return;
         const normAwb = String(r.awb).trim();
         const cs = cargoStatuses[normAwb];
         if(cs){
-          // Auto-tag courier if not yet set
-          if(!r.courier) r.courier = 'cargo';
+          if(!r.courier){ r.courier = 'cargo'; cargoTagged++; }
           report.results[normAwb] = { status: cs.tlStatus, source: 'cargo', statusLabel: cs.statusLabel };
           report.cargoChecked++;
         }
       });
+      if(cargoTagged > 0){
+        console.log(`[TrackLens][Sync] Auto-tagged ${cargoTagged} orders as Cargo`);
+        persistLocal(); // persist courier tags even if status doesn't advance
+      }
     } catch(err){
       report.errors.push({ source: 'cargo', error: err.message });
       console.warn('[TrackLens][Sync] Cargo bulk fetch failed:', err.message);
@@ -6841,22 +6845,14 @@ async function runTrackingSync(onProgress){
       done = d;
       if(onProgress) onProgress(report.cargoChecked + done, total, `BD: ${awb}`);
     });
+    let bdTagged = 0;
     Object.entries(bdResults).forEach(([awb, r]) => {
       if(!r.isError){
-        // Auto-tag courier
         const inv = State.invoices.find(x => x.awb && String(x.awb).trim() === String(awb).trim());
-        if(inv && !inv.courier) inv.courier = 'bluedart';
-        // Map BD-specific status values to TrackLens status vocabulary
-        // BD returns: in_transit, picked_up, out_for_delivery, booked, delivered, ndr, rto
-        // TrackLens uses: shipped, delivered, ndr, rto
+        if(inv && !inv.courier){ inv.courier = 'bluedart'; bdTagged++; }
         const bdToTl = {
-          'in_transit':       'shipped',
-          'picked_up':        'shipped',
-          'out_for_delivery': 'shipped',
-          'booked':           'shipped',
-          'delivered':        'delivered',
-          'ndr':              'ndr',
-          'rto':              'rto'
+          'in_transit':'shipped','picked_up':'shipped','out_for_delivery':'shipped',
+          'booked':'shipped','delivered':'delivered','ndr':'ndr','rto':'rto'
         };
         const tlStatus = bdToTl[r.status] || 'shipped';
         report.results[awb] = { status: tlStatus, source: 'bluedart', statusLabel: r.statusDesc || r.lastEvent || r.status };
@@ -6865,11 +6861,12 @@ async function runTrackingSync(onProgress){
         report.errors.push({ source: 'bluedart', awb, error: r.errorMsg });
       }
     });
-    // Log first 5 BD results so we can see what's coming back
-    const bdSample = Object.entries(bdResults).filter(([,r])=>!r.isError).slice(0,5);
-    console.log('[TrackLens][Sync] BD sample results:', bdSample.map(([awb,r])=>
-      `AWB=${awb} bdStatus=${r.status} → tlStatus=${({'in_transit':'shipped','picked_up':'shipped','out_for_delivery':'shipped','booked':'shipped','delivered':'delivered','ndr':'ndr','rto':'rto'})[r.status]||'shipped'}`
-    ));
+    if(bdTagged > 0){
+      console.log(`[TrackLens][Sync] Auto-tagged ${bdTagged} orders as Bluedart`);
+      persistLocal();
+    }
+    const bdSample = Object.entries(bdResults).filter(([,r])=>!r.isError).slice(0,3);
+    console.log('[TrackLens][Sync] BD sample:', bdSample.map(([awb,r])=>`${awb}→${r.status}`));
   }
 
   // ── APPLY RESULTS ──
@@ -6901,7 +6898,7 @@ async function runTrackingSync(onProgress){
  */
 async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
   const statusMap = {};
-  const trackStatuses = ['pickup_scheduled', 'pickup_generated', 'in_transit', 'out_for_delivery', 'delivered', 'rto'];
+  const trackStatuses = ['ready_to_ship', 'pickup_scheduled', 'pickup_generated', 'in_transit', 'out_for_delivery', 'delivered', 'rto', 'ndr'];
   const awbFields = ['waybill_no', 'awb', 'awb_code', 'awb_number', 'tracking_id', 'awb_no', 'waybill'];
   let totalFound = 0;
 
@@ -6966,6 +6963,7 @@ async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
 /* Map Cargo status string to TrackLens internal status. */
 function mapCargoStatus(cargoStatus){
   const m = {
+    'ready_to_ship':      'shipped',  // dispatched, awaiting courier pickup
     'pickup_scheduled':   'shipped',
     'pickup_generated':   'shipped',
     'in_transit':         'shipped',
