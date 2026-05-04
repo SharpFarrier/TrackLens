@@ -1671,6 +1671,7 @@
       <div class="actions">
         <button class="btn-secondary" id="batchSelectAllBtn">Select all matching</button>
         <button class="btn-secondary" id="batchAutoTagBtn" title="Auto-suggest courier from AWB pattern for untagged orders">Auto-tag couriers</button>
+        <button class="btn-secondary" id="batchTrackBdBtn" title="Fetch tracking status for selected Bluedart orders">Track Bluedart (0)</button>
         <button class="btn-primary" id="batchGenerateBtn" disabled>Generate dispatch (0)</button>
       </div>
     </div>
@@ -1797,10 +1798,15 @@
 
           <!-- Bluedart -->
           <div class="field-group">
-            <label>Bluedart — License Key + Customer Code</label>
-            <div class="field-row">
-              <input type="password" class="mono" id="cred-bd-license" placeholder="License key" data-cred="bluedart.license" />
-              <input type="text" class="mono" id="cred-bd-customer" placeholder="Customer code" data-cred="bluedart.customer" />
+            <label>Bluedart — Licence Key <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from your Bluedart portal — used for shipment tracking)</span></label>
+            <input type="password" class="mono" id="cred-bd-licenceKey" placeholder="32-character licence key" autocomplete="off" />
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+              <button class="btn ghost sm" id="testBluedartBtn">Test Bluedart tracking</button>
+              <span id="bdAuthResult" style="font-size:11.5px;color:var(--ink-3)"></span>
+            </div>
+            <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
+              User ID: <span class="mono">BOM41184</span> · Customer Code: <span class="mono">485892</span> (pre-configured)<br>
+              Note: Labels for Bluedart shipments continue to be printed from Shypassist. TrackLens uses this key for tracking status only.
             </div>
           </div>
 
@@ -2092,6 +2098,11 @@ const State = {
     templates: { pickedUp: '', ofd: '' },
     thresholds: { stale: 48, atrisk: 24, breach: 12 },
     proxy: { url: '' },
+    bluedart: {
+      loginId: 'BOM41184',          // pre-filled — same for all users of this account
+      licenceKey: '',               // entered in Settings → Courier APIs
+      customerCode: '485892'        // pre-filled
+    },
     involens: {
       dataFolderId: '',          // Drive folder containing involens_invoices.json (e.g. "InvoLens Data")
       invoicesFolderId: '',      // Drive folder containing per-order invoice PDFs (e.g. "Invoices" inside InvoLens Data)
@@ -2156,7 +2167,7 @@ const State = {
 const COURIER_OPTIONS = [
   { key: 'cargo',            label: 'Shiprocket Cargo',  apiBacked: true,  color: '#7c3aed' },
   { key: 'delhivery_direct', label: 'Delhivery Direct',  apiBacked: false, color: '#e63946' },
-  { key: 'bluedart',         label: 'Bluedart',          apiBacked: false, color: '#1d4ed8' },
+  { key: 'bluedart',         label: 'Bluedart',          apiBacked: true,  color: '#1d4ed8' },
 ];
 const COURIER_BY_KEY = Object.fromEntries(COURIER_OPTIONS.map(c => [c.key, c]));
 
@@ -2627,6 +2638,7 @@ function restoreLocal(){
   if(!State.settings.involens) State.settings.involens = { dataFolderId: '', invoicesFolderId: '', lastFetchedAt: null, lastModifiedTime: null };
   if(typeof State.settings.involens.dataFolderId !== 'string') State.settings.involens.dataFolderId = '';
   if(!State.settings.proxy) State.settings.proxy = { url: '' };
+  if(!State.settings.bluedart) State.settings.bluedart = { loginId: 'BOM41184', licenceKey: '', customerCode: '485892' };
   if(!State.settings.transitOverrides || typeof State.settings.transitOverrides !== 'object') State.settings.transitOverrides = {};
   if(!State.settings.pincodeTransitOverrides || typeof State.settings.pincodeTransitOverrides !== 'object') State.settings.pincodeTransitOverrides = {};
   if(typeof State.settings.transitBufferDays !== 'number' || State.settings.transitBufferDays < 0) State.settings.transitBufferDays = 0;
@@ -5077,6 +5089,188 @@ function batchFilteredRows(){
     });
 }
 
+/* ============================================================
+ * BLUEDART — Tracking API
+ * ============================================================
+ *
+ * Uses api.bluedart.com tracking endpoint. Proxied through Cloudflare
+ * Worker to handle CORS. Returns XML, which we parse in-browser.
+ *
+ * Credentials: LoginID (BOM41184), LicenceKey (from Settings)
+ * AWB format: 14-digit numeric starting with 5
+ *
+ * Label fetch: NOT supported. Bluedart API cannot fetch labels for
+ * AWBs created in third-party tools (Shypassist). Labels continue
+ * to be printed from Shypassist directly.
+ */
+
+function getBluedartCreds(){
+  const bd = State.settings.bluedart || {};
+  return {
+    loginId:      bd.loginId      || 'BOM41184',
+    licenceKey:   bd.licenceKey   || '',
+    customerCode: bd.customerCode || '485892'
+  };
+}
+
+/* Fetch tracking status for one AWB from Bluedart.
+ * Returns { awb, status, statusCode, lastEvent, events[], isError, errorMsg }
+ */
+async function bluedartTrackAwb(awb){
+  const creds = getBluedartCreds();
+  if(!creds.licenceKey) throw new Error('Bluedart licence key not configured in Settings → Courier APIs');
+
+  const base = getProxyBase();
+  // Route through proxy: Worker forwards /bluedart/* to api.bluedart.com
+  const params = new URLSearchParams({
+    handler: 'tnt',
+    action:  'custawbquery',
+    loginid: creds.loginId,
+    awb:     'awb',
+    numbers: String(awb).trim(),
+    format:  'xml',
+    lickey:  creds.licenceKey,
+    verno:   '1.3',
+    scan:    '0'
+  });
+  const url = `${base}/bluedart/servlet/RoutingServlet?${params}`;
+  console.log(`[TrackLens][BD] Tracking AWB ${awb}`);
+
+  const resp = await fetch(url);
+  if(!resp.ok) throw new Error(`Bluedart API HTTP ${resp.status}`);
+
+  const xmlText = await resp.text();
+  return parseBluedartTrackingXml(awb, xmlText);
+}
+
+/* Parse Bluedart tracking XML into a clean JS object.
+ *
+ * Bluedart XML structure:
+ *   <ShipmentTrackingNumber>...</ShipmentTrackingNumber>
+ *   <Shipment>
+ *     <Status>
+ *       <StatusCode>...</StatusCode>
+ *       <StatusDescription>...</StatusDescription>
+ *       <StatusDate>...</StatusDate>
+ *       <StatusTime>...</StatusTime>
+ *     </Status>
+ *     <Scans>
+ *       <ScanDetail>
+ *         <ScanDate>...</ScanDate>
+ *         <ScanTime>...</ScanTime>
+ *         <StatusDescription>...</StatusDescription>
+ *         <Scan>...</Scan>
+ *         <ScannedLocation>...</ScannedLocation>
+ *       </ScanDetail>
+ *       ...
+ *     </Scans>
+ *   </Shipment>
+ */
+function parseBluedartTrackingXml(awb, xmlText){
+  try{
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'text/xml');
+
+    // Check for error
+    const isError = doc.querySelector('IsError')?.textContent?.trim() === 'true';
+    if(isError){
+      const errorMsg = doc.querySelector('ErrorMessage')?.textContent?.trim() || 'Unknown error';
+      return { awb, isError: true, errorMsg, status: 'error', events: [] };
+    }
+
+    // Current status
+    const statusCode = doc.querySelector('StatusCode')?.textContent?.trim() || '';
+    const statusDesc = doc.querySelector('StatusDescription')?.textContent?.trim() || '';
+    const statusDate = doc.querySelector('StatusDate')?.textContent?.trim() || '';
+    const statusTime = doc.querySelector('StatusTime')?.textContent?.trim() || '';
+
+    // Scan history
+    const events = [];
+    doc.querySelectorAll('ScanDetail').forEach(scan => {
+      events.push({
+        date:     scan.querySelector('ScanDate')?.textContent?.trim() || '',
+        time:     scan.querySelector('ScanTime')?.textContent?.trim() || '',
+        desc:     scan.querySelector('StatusDescription')?.textContent?.trim() || '',
+        scan:     scan.querySelector('Scan')?.textContent?.trim() || '',
+        location: scan.querySelector('ScannedLocation')?.textContent?.trim() || ''
+      });
+    });
+
+    // Map Bluedart status codes to TrackLens internal statuses
+    const tlStatus = mapBluedartStatus(statusCode, statusDesc);
+    const lastEvent = statusDesc || (events[0]?.desc) || 'No updates';
+
+    return { awb, isError: false, status: tlStatus, statusCode, statusDesc, statusDate, statusTime, lastEvent, events };
+  } catch(err){
+    return { awb, isError: true, errorMsg: 'XML parse failed: ' + err.message, status: 'error', events: [] };
+  }
+}
+
+/* Map Bluedart status code/description to TrackLens status. */
+function mapBluedartStatus(code, desc){
+  const d = (desc || '').toLowerCase();
+  const c = (code || '').toUpperCase();
+  if(c === 'DL' || d.includes('delivered'))                    return 'delivered';
+  if(c === 'OD' || d.includes('out for delivery'))             return 'out_for_delivery';
+  if(c === 'TR' || d.includes('in transit'))                   return 'in_transit';
+  if(c === 'PU' || d.includes('picked up') || d.includes('shipment picked'))  return 'picked_up';
+  if(c === 'ND' || d.includes('undelivered') || d.includes('ndr'))  return 'ndr';
+  if(c === 'RTO' || d.includes('rto') || d.includes('return')) return 'rto';
+  if(d.includes('booked') || d.includes('manifested'))         return 'booked';
+  return 'in_transit'; // default
+}
+
+/* Fetch tracking for multiple Bluedart AWBs (sequential, rate-limit safe). */
+async function bluedartBulkTrack(awbs, onProgress){
+  const results = {};
+  for(let i = 0; i < awbs.length; i++){
+    const awb = awbs[i];
+    if(onProgress) onProgress(i + 1, awbs.length, awb);
+    try{
+      results[awb] = await bluedartTrackAwb(awb);
+    } catch(err){
+      results[awb] = { awb, isError: true, errorMsg: err.message, status: 'error', events: [] };
+    }
+    // Small delay between requests to respect rate limits
+    if(i < awbs.length - 1) await new Promise(r => setTimeout(r, 300));
+  }
+  return results;
+}
+
+/* Update TrackLens order statuses from Bluedart tracking results. */
+function applyBluedartTrackingResults(results){
+  let updated = 0;
+  Object.values(results).forEach(r => {
+    if(r.isError) return;
+    // Find the order with this AWB
+    const inv = State.invoices.find(x => x.awb === r.awb || x.awb === String(r.awb));
+    if(!inv) return;
+    // Store tracking data on the order
+    inv.bdTracking = {
+      fetchedAt: new Date().toISOString(),
+      status: r.status,
+      statusCode: r.statusCode,
+      statusDesc: r.statusDesc,
+      lastEvent: r.lastEvent,
+      events: r.events
+    };
+    // Auto-advance status if courier confirms delivery/pickup
+    if(r.status === 'delivered' && inv.status === 'shipped'){
+      try { setOrderStatus(inv.id, 'delivered', { by: 'auto', reason: 'Bluedart confirmed delivery' }); } catch(e){}
+    }
+    if((r.status === 'picked_up' || r.status === 'in_transit') && inv.status === 'packed'){
+      try { setOrderStatus(inv.id, 'shipped', { by: 'auto', reason: 'Bluedart confirmed pickup' }); } catch(e){}
+    }
+    updated++;
+  });
+  if(updated > 0){
+    persistLocal();
+    renderBatch();
+    renderInbox();
+  }
+  return updated;
+}
+
 function renderBatch(){
   const rows = batchFilteredRows();
   const tbody = $('#batchTableBody');
@@ -5103,12 +5297,15 @@ function renderBatch(){
   renderBatchSummary(rows);
   renderBatchKpis(rows);
 
-  // Update tab badge — number of selected
-  // v1.2: tab badge renamed from batchCount to packCount
+  // Update tab badge — dispatching count
   const packCountEl = $('#packCount');
-  // v1.2: tab badge = number of orders in dispatch queue (dispatching status)
   const dispatchingCount = (State.invoices || []).filter(r => r.status === 'dispatching').length;
   if(packCountEl) packCountEl.textContent = dispatchingCount;
+
+  // Update BD track button count
+  const bdCount = rows.filter(r => r.courier === 'bluedart' && r.awb && r.awbOk).length;
+  const bdBtn = $('#batchTrackBdBtn');
+  if(bdBtn) bdBtn.textContent = `Track Bluedart (${bdCount})`;
 
   // Bind row checkbox + courier dropdown handlers
   tbody.querySelectorAll('.batch-row-cb').forEach(el => {
@@ -5413,6 +5610,37 @@ function bindBatchFilters(){
     persistLocal();
     toast(`Auto-tagged ${count} orders by AWB pattern`, count ? 'success' : 'info');
     renderBatch();
+  });
+
+  // Track Bluedart shipments
+  $('#batchTrackBdBtn').addEventListener('click', async () => {
+    const rows = batchFilteredRows();
+    const bdRows = rows.filter(r => r.courier === 'bluedart' && r.awb && r.awbOk);
+    if(bdRows.length === 0){
+      toast('No Bluedart orders with valid AWBs in current view', 'info'); return;
+    }
+    if(!State.settings.bluedart?.licenceKey){
+      toast('Bluedart licence key not set — add it in Settings → Courier APIs', 'error', 4000); return;
+    }
+    toast(`Fetching tracking for ${bdRows.length} Bluedart orders…`, 'info', 3000);
+    const btn = $('#batchTrackBdBtn');
+    if(btn) btn.disabled = true;
+    try{
+      const awbs = bdRows.map(r => r.awb);
+      const results = await bluedartBulkTrack(awbs, (done, total, awb) => {
+        if(btn) btn.textContent = `Tracking BD… ${done}/${total}`;
+      });
+      const updated = applyBluedartTrackingResults(results);
+      const errors = Object.values(results).filter(r => r.isError).length;
+      let msg = `Updated ${updated} BD orders`;
+      if(errors) msg += ` · ${errors} errors`;
+      toast(msg, errors ? 'info' : 'success', 4000);
+    } catch(err){
+      toast('Bluedart tracking failed: ' + err.message, 'error', 5000);
+    } finally {
+      if(btn){ btn.disabled = false; btn.textContent = 'Track Bluedart'; }
+      renderBatch();
+    }
   });
 
   // Manual invoice upload
@@ -6002,6 +6230,43 @@ function bindSettings(){
 
   $('#syncDriveBtn').addEventListener('click', syncDriveNow);
   $('#reauthDriveBtn').addEventListener('click', () => { State.drive.accessToken = null; State.drive.connected = false; renderDriveStatus(); ensureDrive(); });
+
+  // Bluedart — Test button
+  const testBdBtn = $('#testBluedartBtn');
+  if(testBdBtn) testBdBtn.addEventListener('click', async () => {
+    // Save key first if typed
+    const keyInput = $('#cred-bd-licenceKey');
+    if(keyInput?.value?.trim()) State.settings.bluedart.licenceKey = keyInput.value.trim();
+    if(!State.settings.bluedart.licenceKey){
+      $('#bdAuthResult').textContent = '✗ Enter licence key first';
+      $('#bdAuthResult').style.color = 'var(--red)';
+      return;
+    }
+    testBdBtn.disabled = true;
+    testBdBtn.textContent = 'Testing…';
+    $('#bdAuthResult').textContent = '';
+    try{
+      // Use a known-good historical AWB for testing: pick first BD order if available, else use a test one
+      const bdInv = State.invoices.find(r => r.courier === 'bluedart' && r.awb && /^\d{14}$/.test(r.awb));
+      const testAwb = bdInv?.awb || '52843410000291'; // fallback to a sample AWB
+      const result = await bluedartTrackAwb(testAwb);
+      if(result.isError){
+        $('#bdAuthResult').textContent = `✗ API error: ${result.errorMsg}`;
+        $('#bdAuthResult').style.color = 'var(--red)';
+      } else {
+        persistLocal();
+        if(State.drive.connected) writeDriveJSON('tracklens_settings.json', State.settings).catch(()=>{});
+        $('#bdAuthResult').textContent = `✓ Connected — AWB ${testAwb}: ${result.lastEvent}`;
+        $('#bdAuthResult').style.color = 'var(--green)';
+      }
+    } catch(err){
+      $('#bdAuthResult').textContent = '✗ ' + err.message;
+      $('#bdAuthResult').style.color = 'var(--red)';
+    } finally {
+      testBdBtn.disabled = false;
+      testBdBtn.textContent = 'Test Bluedart tracking';
+    }
+  });
 }
 
 function saveSettingsSection(section){
@@ -6011,8 +6276,9 @@ function saveSettingsSection(section){
     State.settings.shiprocket.email = $('#cred-sr-email').value || State.settings.shiprocket.email;
     State.settings.shiprocket.password = $('#cred-sr-password').value || State.settings.shiprocket.password;
     State.settings.delhivery.token = $('#cred-dl-token').value || State.settings.delhivery.token;
-    State.settings.bluedart.license = $('#cred-bd-license').value || State.settings.bluedart.license;
-    State.settings.bluedart.customer = $('#cred-bd-customer').value || State.settings.bluedart.customer;
+    // v1.2: Bluedart uses licenceKey (note spelling — matches Bluedart API)
+    const bdKey = $('#cred-bd-licenceKey')?.value?.trim();
+    if(bdKey) State.settings.bluedart.licenceKey = bdKey;
   }
   if(section === 'messaging'){
     State.settings.interakt.apiKey = $('#cred-it-key').value || State.settings.interakt.apiKey;
@@ -6061,8 +6327,7 @@ function applySettingsToInputs(){
     ['cred-sr-email', State.settings.shiprocket.email, false],
     ['cred-sr-password', State.settings.shiprocket.password, true],
     ['cred-dl-token', State.settings.delhivery.token, true],
-    ['cred-bd-license', State.settings.bluedart.license, true],
-    ['cred-bd-customer', State.settings.bluedart.customer, false],
+    ['cred-bd-licenceKey', State.settings.bluedart?.licenceKey, true],  // v1.2: correct field
     ['cred-it-key', State.settings.interakt.apiKey, true],
     ['cred-ops-phones', State.settings.alerts.opsPhones, false],
     ['cred-ops-email', State.settings.alerts.opsEmail, false],
