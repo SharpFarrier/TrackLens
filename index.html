@@ -1620,18 +1620,17 @@
     </div>
 
     <!-- Filter bar -->
+    <!-- Dispatch date quick-filter chips -->
+    <div class="filter-bar" style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line)">
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;color:var(--ink-3);margin-right:6px">Dispatch date:</span>
+      <div class="filter-chip active" data-batch-date-chip="all">All <span class="count" id="bdc-all">0</span></div>
+      <div class="filter-chip" data-batch-date-chip="today">Today <span class="count" id="bdc-today">0</span></div>
+      <div class="filter-chip" data-batch-date-chip="tomorrow">Tomorrow <span class="count" id="bdc-tomorrow">0</span></div>
+      <div class="filter-chip" data-batch-date-chip="week">This week <span class="count" id="bdc-week">0</span></div>
+      <div class="filter-chip" data-batch-date-chip="none">No date set <span class="count" id="bdc-none">0</span></div>
+    </div>
+
     <div class="filter-bar">
-      <div class="filter-group">
-        <label>Planned from</label>
-        <input type="date" id="batchFilterFrom" />
-      </div>
-      <div class="filter-group">
-        <label>To</label>
-        <input type="date" id="batchFilterTo" />
-      </div>
-      <div class="filter-group" style="padding-top:18px">
-        <button class="btn ghost sm" id="batchFilterTodayBtn" title="Show only orders planned today">Today only</button>
-      </div>
       <div class="filter-group">
         <label>Courier</label>
         <select id="batchFilterCourier">
@@ -1653,7 +1652,7 @@
       </div>
       <div class="filter-group">
         <label>Search</label>
-        <input type="text" id="batchFilterSearch" placeholder="order ID, AWB, customer…" />
+        <input type="text" id="batchFilterSearch" placeholder="order ID, AWB, SKU, customer…" />
       </div>
       <div class="filter-spacer"></div>
       <button class="clear-btn" id="batchClearFilters">Clear</button>
@@ -1699,10 +1698,12 @@
             <th style="width:30px"><input type="checkbox" class="batch-checkbox" id="batchSelectAllCb" /></th>
             <th>Invoice</th>
             <th>Order ID</th>
-            <th>Dispatch Date</th>
+            <th class="sortable-col" data-sort-col="dispatchDate" style="cursor:pointer;user-select:none">Dispatch Date <span class="sort-icon" id="si-dispatchDate">↕</span></th>
             <th>AWB</th>
             <th>Customer</th>
-            <th>Courier</th>
+            <th class="sortable-col" data-sort-col="courier" style="cursor:pointer;user-select:none">Courier <span class="sort-icon" id="si-courier">↕</span></th>
+            <th class="sortable-col" data-sort-col="sku" style="cursor:pointer;user-select:none">SKU <span class="sort-icon" id="si-sku">↕</span></th>
+            <th class="sortable-col" data-sort-col="daysLeft" style="cursor:pointer;user-select:none">Days Left <span class="sort-icon" id="si-daysLeft">↕</span></th>
             <th>Status</th>
           </tr>
         </thead><tbody id="batchTableBody">
@@ -1758,6 +1759,7 @@
         <div class="settings-nav-item" data-section="thresholds">Delay Thresholds</div>
         <div class="settings-nav-item" data-section="drive">Drive Sync</div>
         <div class="settings-nav-item" data-section="transit">Transit Times</div>
+        <div class="settings-nav-item" data-section="tracking-sync">Tracking Sync</div>
         <div class="settings-nav-item" data-section="about">About</div>
       </aside>
 
@@ -2017,27 +2019,73 @@
           </div>
         </div>
 
+        <div class="settings-section" data-section="tracking-sync" style="display:none">
+          <h3>Tracking Sync</h3>
+          <p class="desc">Fetches shipment status for all orders with AWBs from the last 15 days. Results saved to <span class="mono">tracklens_tracking.json</span> in Drive. Run this once when you open TrackLens to see which orders are already with the courier.</p>
+
+          <div style="background:var(--cream);padding:14px;border-radius:8px;border:1px solid var(--line);margin-bottom:16px">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <button class="btn accent sm" id="runTrackingSyncBtn">▶ Run tracking sync now</button>
+              <span id="trackingSyncLastRun" style="font-size:11.5px;color:var(--ink-3)">Never run</span>
+            </div>
+            <div style="margin-top:12px">
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink-3);margin-bottom:4px">
+                <span id="trackingSyncMsg">Ready</span>
+                <span id="trackingSyncCount"></span>
+              </div>
+              <div style="background:#e0e0e0;border-radius:4px;height:6px;overflow:hidden">
+                <div id="trackingSyncBar" style="background:var(--accent);height:100%;width:0%;transition:width .3s"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="trackingSyncResult" style="display:none;background:var(--cream);padding:12px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.8;color:var(--ink-2)"></div>
+
+          <div style="margin-top:16px;font-size:11.5px;color:var(--ink-2);line-height:1.7">
+            <strong>What it does:</strong><br>
+            → Calls Cargo shipment-list API (pickup_date last 15 days)<br>
+            → Calls Bluedart tracking API for each BD AWB<br>
+            → Auto-advances statuses: dispatching/packed → shipped → delivered/RTO/NDR<br>
+            → Saves full results to Drive for offline use<br>
+            <br>
+            <strong>After running:</strong><br>
+            → Orders confirmed picked up disappear from Plan tab<br>
+            → Delivered orders show in Track tab (v1.3)<br>
+            → Master Database shows accurate current status for all orders
+          </div>
+        </div>
+
         <div class="settings-section" data-section="about" style="display:none">
           <h3>About TrackLens</h3>
           <p class="desc">Honey Touch shipment dispatch & SLA tracker. Reads orders from InvoLens, fetches shipping labels from courier APIs, monitors status, and triggers alerts.</p>
           <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);line-height:2">
-            <div>Version: <strong>1.1.3</strong> (Picklist + urgency + planning date)</div>
-            <div>Canonical: <strong>tracklens_v1.1.3.html</strong></div>
+            <div>Version: <strong>1.2</strong> (Model A lifecycle · Bluedart tracking · Drive auto-poll)</div>
+            <div>Canonical: <strong>tracklens_v1.2.html</strong></div>
             <div>Storage key: <strong>tracklens_v1</strong></div>
-            <div>Build date: 2026-04-28</div>
+            <div>Build date: 2026-05-04</div>
           </div>
+
+          <!-- ⚠️ TEMPORARY DEBUG TOOL — remove after 2026-05-06 -->
+          <div style="margin-top:24px;padding:16px;background:#fff8f0;border:1.5px solid #e07020;border-radius:8px">
+            <div style="font-weight:600;color:#c05010;margin-bottom:8px">⚠ Debug: Reset all order data</div>
+            <p style="font-size:12px;color:var(--ink-2);margin:0 0 12px">
+              Wipes all order statuses, dispatch dates, AWB overrides, and batch history from localStorage and Drive. 
+              Immediately re-fetches <span class="mono">involens_invoices.json</span> from Drive so Master Database repopulates fresh.<br>
+              <strong>Use once to clear debugging mess. Remove this button after 2026-05-06.</strong>
+            </p>
+            <button class="btn sm" id="debugResetAllBtn" style="background:#e07020;border-color:#c05010;color:#fff">Reset all order data (debug)</button>
+            <span id="debugResetResult" style="font-size:11.5px;color:var(--ink-3);margin-left:10px"></span>
+          </div>
+
           <div style="margin-top:18px;padding:14px;background:var(--surface-2);border-radius:6px;font-size:12px;line-height:1.8">
             <strong>Roadmap:</strong><br>
             v1.0 — Auth + InvoLens import + dispatch queue<br>
-            v1.1.0 — Manual courier assignment + Cargo auth scaffolding<br>
-            <strong>v1.1.1 — Cargo single-order label fetch (you are here)</strong><br>
             v1.1.2 — Cargo bulk label + invoice + manifest PDFs<br>
-            v1.2 — Bluedart direct integration (40% of volume)<br>
-            v1.3 — Delhivery direct integration (10% of volume)<br>
-            v1.4 — Live tracking grid<br>
-            v1.5 — Alerts engine (Interakt)<br>
-            v1.6 — SLA performance dashboard<br>
-            v1.7 — Direct InvoLens → TrackLens auto-sync
+            v1.1.3 — Picklist + urgency + planning date<br>
+            <strong>v1.2 — Status lifecycle · Days-left engine · Bluedart tracking · Drive sync (you are here)</strong><br>
+            v1.3 — Live tracking grid + Delhivery integration + picker feedback<br>
+            v1.4 — Alerts engine (Interakt WhatsApp + email)<br>
+            v1.5 — SLA performance dashboard
           </div>
         </div>
 
@@ -2137,9 +2185,11 @@ const State = {
       from: '',              // YYYY-MM-DD or '' = no lower bound (filters dispatchDate now)
       to: '',                // YYYY-MM-DD or '' = no upper bound
       courier: 'all',        // all | cargo | delhivery_direct | bluedart | untagged
-      status: 'planned',     // v1.2: planned (default) | packed | shipped | all
-      search: ''
+      status: 'all',         // v1.2: all | dispatching | packed | shipped
+      search: '',
+      dispatchDateChip: 'all' // all | today | tomorrow | week
     },
+    sort: { col: 'dispatchDate', dir: 'asc' }, // col: dispatchDate|daysLeft|courier|sku
     manualInvoicePdf: null,  // { name, bytes (Uint8Array), pageCount }
     runState: 'idle',        // idle | running | done | error
     log: [],                 // run log lines
@@ -5028,65 +5078,80 @@ function batchSortKey(r){
 function batchFilteredRows(){
   const f = State.batch.filters;
   const s = (f.search || '').trim().toLowerCase();
-  const lo = f.from ? f.from : null;
-  const hi = f.to ? f.to : null;
+  const sort = State.batch.sort || { col: 'dispatchDate', dir: 'asc' };
 
-  // v1.2 Model A: Pack & Ship shows only dispatching/packed/shipped.
+  // Date chip filter
+  const today = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const weekEnd = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  const chip = f.dispatchDateChip || 'all';
+
   const PACK_VISIBLE = new Set(['dispatching', 'packed', 'shipped']);
 
-  return State.invoices
+  const rows = State.invoices
     .map(applyAwbOverride)
     .filter(r => {
       const status = r.status || 'inbox';
       if(!PACK_VISIBLE.has(status)) return false;
 
-      // Status filter dropdown
+      // Status dropdown filter
       if(f.status === 'dispatching' && status !== 'dispatching') return false;
       if(f.status === 'packed'      && status !== 'packed')      return false;
       if(f.status === 'shipped'     && status !== 'shipped')     return false;
 
-      // Date filter — against when order entered dispatching
-      if(lo || hi){
-        let planDate = null;
-        if(Array.isArray(r.statusHistory)){
-          const ev = [...r.statusHistory].reverse().find(e => e.to === 'dispatching');
-          if(ev?.at) planDate = ev.at.slice(0, 10);
-        }
-        planDate = planDate || r.dispatchDate || null;
-        if(planDate){
-          if(lo && planDate < lo) return false;
-          if(hi && planDate > hi) return false;
-        }
-      }
+      // Dispatch date chip filter
+      const dd = r.dispatchDate || null;
+      if(chip === 'today')    { if(dd !== today) return false; }
+      if(chip === 'tomorrow') { if(dd !== tomorrow) return false; }
+      if(chip === 'week')     { if(!dd || dd < today || dd > weekEnd) return false; }
+      if(chip === 'none')     { if(dd) return false; }
 
       // Courier filter
       if(f.courier !== 'all'){
-        if(f.courier === 'untagged'){
-          if(r.courier) return false;
-        } else {
-          if(r.courier !== f.courier) return false;
-        }
+        if(f.courier === 'untagged'){ if(r.courier) return false; }
+        else { if(r.courier !== f.courier) return false; }
       }
 
       // Search
       if(s){
-        const hay = `${r.invoiceNo} ${r.orderId} ${r.awb} ${r.customerName} ${r.sku}`.toLowerCase();
+        const hay = `${r.invoiceNo} ${r.orderId} ${r.awb} ${r.customerName} ${r.sku} ${r.pincode}`.toLowerCase();
         if(!hay.includes(s)) return false;
       }
       return true;
-    })
-    .sort((a, b) => {
-      const order = { dispatching:0, packed:1, shipped:2 };
-      const aO = order[a.status || ''] ?? 3;
-      const bO = order[b.status || ''] ?? 3;
-      if(aO !== bO) return aO - bO;
-      const aDate = a.dispatchDate || a.invoiceDate || '';
-      const bDate = b.dispatchDate || b.invoiceDate || '';
-      if(aDate !== bDate) return aDate.localeCompare(bDate);
-      const aDl = computeDaysLeft(a);
-      const bDl = computeDaysLeft(b);
-      return (aDl.hasPromise ? aDl.value : Infinity) - (bDl.hasPromise ? bDl.value : Infinity);
     });
+
+  // Sort
+  rows.sort((a, b) => {
+    let aVal, bVal;
+    switch(sort.col){
+      case 'dispatchDate':
+        aVal = a.dispatchDate || 'zzz';
+        bVal = b.dispatchDate || 'zzz';
+        break;
+      case 'daysLeft': {
+        const aDl = computeDaysLeft(a), bDl = computeDaysLeft(b);
+        aVal = aDl.hasPromise ? aDl.value : 9999;
+        bVal = bDl.hasPromise ? bDl.value : 9999;
+        break;
+      }
+      case 'courier':
+        aVal = a.courier || 'zzz';
+        bVal = b.courier || 'zzz';
+        break;
+      case 'sku':
+        aVal = a.sku || '';
+        bVal = b.sku || '';
+        break;
+      default:
+        aVal = a.dispatchDate || 'zzz';
+        bVal = b.dispatchDate || 'zzz';
+    }
+    if(aVal < bVal) return sort.dir === 'asc' ? -1 : 1;
+    if(aVal > bVal) return sort.dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  return rows;
 }
 
 /* ============================================================
@@ -5307,6 +5372,29 @@ function renderBatch(){
   const bdBtn = $('#batchTrackBdBtn');
   if(bdBtn) bdBtn.textContent = `Track Bluedart (${bdCount})`;
 
+  // Update dispatch date chip counts
+  const today2 = new Date().toISOString().slice(0, 10);
+  const tomorrow2 = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const weekEnd2 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  const allPack = (State.invoices||[]).filter(r => ['dispatching','packed','shipped'].includes(r.status||'inbox')).map(applyAwbOverride);
+  const setText2 = (sel, val) => { const el = $(sel); if(el) el.textContent = val; };
+  setText2('#bdc-all', allPack.length);
+  setText2('#bdc-today', allPack.filter(r => r.dispatchDate === today2).length);
+  setText2('#bdc-tomorrow', allPack.filter(r => r.dispatchDate === tomorrow2).length);
+  setText2('#bdc-week', allPack.filter(r => r.dispatchDate && r.dispatchDate >= today2 && r.dispatchDate <= weekEnd2).length);
+  setText2('#bdc-none', allPack.filter(r => !r.dispatchDate).length);
+  const activeChip = State.batch.filters.dispatchDateChip || 'all';
+  $$('[data-batch-date-chip]').forEach(c => c.classList.toggle('active', c.dataset.batchDateChip === activeChip));
+
+  // Update sort icons
+  const sort = State.batch.sort || { col: 'dispatchDate', dir: 'asc' };
+  ['dispatchDate','courier','sku','daysLeft'].forEach(col => {
+    const el = $(`#si-${col}`);
+    if(!el) return;
+    if(sort.col === col) el.textContent = sort.dir === 'asc' ? '↑' : '↓';
+    else el.textContent = '↕';
+  });
+
   // Bind row checkbox + courier dropdown handlers
   tbody.querySelectorAll('.batch-row-cb').forEach(el => {
     el.addEventListener('change', e => {
@@ -5448,6 +5536,13 @@ function renderBatchRow(r){
     awbCell = `<span class="mono" style="font-size:11px">${r.awb}</span>`;
   }
 
+  // Days Left cell for Pack & Ship
+  const dlBatch = computeDaysLeft(r);
+  const dlBatchLabel = DAYS_LEFT_LABELS[dlBatch.bucket] || DAYS_LEFT_LABELS.unknown;
+  const dlBatchCell = dlBatch.hasPromise
+    ? `<span style="color:${dlBatchLabel.color};font-weight:600;font-size:12px">${dlBatch.value > 0 ? '+' : ''}${dlBatch.value}d</span>`
+    : `<span style="color:var(--ink-3);font-size:12px">—</span>`;
+
   return `
     <tr class="${isSelected ? 'row-selected' : ''} ${isDispatched ? 'dispatched' : ''}">
       <td><input type="checkbox" class="batch-checkbox batch-row-cb"
@@ -5470,6 +5565,8 @@ function renderBatchRow(r){
           ${courierOpts}
         </select>
       </td>
+      <td><span class="mono" style="font-size:11px">${escapeHtml(r.sku||'—')}</span></td>
+      <td>${dlBatchCell}</td>
       <td>${statusHtml}</td>
     </tr>`;
 }
@@ -5542,41 +5639,47 @@ function renderBatchKpis(rows){
 function bindBatchFilters(){
   const f = State.batch.filters;
 
-  // v1.2: force-clear any stale date filter from v1.1 localStorage.
-  // The date filter semantics changed (now against dispatchDate, not invoiceDate)
-  // so old persisted dates would silently hide all results.
-  f.from = '';
-  f.to = '';
-  // v1.2 Model A: migrate any stale planned/ready/dispatched filter values
-  if(['planned', 'ready', 'dispatched'].includes(f.status)) f.status = 'dispatching';
+  // Migrate stale values
+  f.from = ''; f.to = '';
+  if(['planned','ready','dispatched'].includes(f.status)) f.status = 'all';
   f.status = f.status || 'all';
+  if(!f.dispatchDateChip) f.dispatchDateChip = 'all';
+  if(!State.batch.sort) State.batch.sort = { col: 'dispatchDate', dir: 'asc' };
 
-  $('#batchFilterFrom').value = '';
-  $('#batchFilterTo').value = '';
   $('#batchFilterStatus').value = f.status;
 
-  $('#batchFilterFrom').addEventListener('change', e => { f.from = e.target.value; renderBatch(); });
-  $('#batchFilterTo').addEventListener('change', e => { f.to = e.target.value; renderBatch(); });
+  // Date chip clicks
+  $$('[data-batch-date-chip]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      f.dispatchDateChip = chip.dataset.batchDateChip;
+      renderBatch();
+    });
+  });
+
+  // Sortable column headers
+  $$('[data-sort-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.sortCol;
+      if(State.batch.sort.col === col){
+        State.batch.sort.dir = State.batch.sort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        State.batch.sort.col = col;
+        State.batch.sort.dir = 'asc';
+      }
+      renderBatch();
+    });
+  });
+
   $('#batchFilterCourier').addEventListener('change', e => { f.courier = e.target.value; renderBatch(); });
   $('#batchFilterStatus').addEventListener('change', e => { f.status = e.target.value; renderBatch(); });
-
-  const todayBtn = $('#batchFilterTodayBtn');
-  if(todayBtn) todayBtn.addEventListener('click', () => {
-    const today = new Date().toISOString().slice(0, 10);
-    f.from = today; f.to = today;
-    $('#batchFilterFrom').value = today;
-    $('#batchFilterTo').value = today;
-    renderBatch();
-  });
   $('#batchFilterSearch').addEventListener('input', e => { f.search = e.target.value; renderBatch(); });
 
   $('#batchClearFilters').addEventListener('click', () => {
-    f.from = ''; f.to = ''; f.courier = 'all'; f.status = 'all'; f.search = '';
-    $('#batchFilterFrom').value = '';
-    $('#batchFilterTo').value = '';
+    f.courier = 'all'; f.status = 'all'; f.search = ''; f.dispatchDateChip = 'all';
     $('#batchFilterCourier').value = 'all';
     $('#batchFilterStatus').value = 'all';
     $('#batchFilterSearch').value = '';
+    $$('[data-batch-date-chip]').forEach(c => c.classList.toggle('active', c.dataset.batchDateChip === 'all'));
     renderBatch();
   });
 
@@ -6229,7 +6332,112 @@ function bindSettings(){
   });
 
   $('#syncDriveBtn').addEventListener('click', syncDriveNow);
-  $('#reauthDriveBtn').addEventListener('click', () => { State.drive.accessToken = null; State.drive.connected = false; renderDriveStatus(); ensureDrive(); });
+  $('#reauthDriveBtn').addEventListener('click', () => {
+    State.drive.accessToken = null;
+    State.drive.connected = false;
+    renderDriveStatus();
+    ensureDrive();
+  });
+
+  // ⚠️ TEMPORARY DEBUG TOOL — remove after 2026-05-06
+  const resetBtn = $('#debugResetAllBtn');
+  if(resetBtn) resetBtn.addEventListener('click', async () => {
+    if(!confirm('⚠️ RESET ALL ORDER DATA\n\nThis will wipe:\n- All order statuses\n- All dispatch dates\n- All AWB overrides\n- All batch history\n- All tracking data\n- All selected orders\n\nMaster Database will repopulate from InvoLens Drive JSON immediately after.\n\nProceed?')) return;
+
+    // Wipe everything
+    State.invoices = [];
+    State.dispatched = {};
+    State.awbOverrides = {};
+    State.urgencyOverrides = {};
+    State.batch.selected.clear();
+    State.batch.history = [];
+    State.batch.filters = { from:'', to:'', courier:'all', status:'all', search:'' };
+    State.selected = new Set();
+    State.planning.urgencyFilter = 'all';
+    State.planning.statusFilter = 'planned';
+    State.planning.planDate = null;
+    State.meta = { importedAt: null, importFilename: null };
+
+    persistLocal();
+
+    // Also write empty orders to Drive
+    if(State.drive.connected){
+      try{
+        await writeDriveJSON('tracklens_orders.json', []);
+        $('#debugResetResult').textContent = '✓ Cleared locally + Drive';
+      } catch(e){
+        $('#debugResetResult').textContent = '✓ Cleared locally (Drive write failed)';
+      }
+    } else {
+      $('#debugResetResult').textContent = '✓ Cleared locally (Drive not connected)';
+    }
+
+    renderInbox();
+    renderDispatch();
+    if(typeof renderBatch === 'function') renderBatch();
+
+    // Re-fetch from InvoLens Drive immediately
+    if(State.settings.involens?.dataFolderId && State.drive.connected){
+      $('#debugResetResult').textContent += ' · Fetching from InvoLens…';
+      try{
+        await fetchInvolensFromDrive({ silent: false, force: true });
+        $('#debugResetResult').textContent = '✓ Reset complete — orders reloaded from InvoLens';
+        $('#debugResetResult').style.color = 'var(--green)';
+      } catch(e){
+        $('#debugResetResult').textContent = '✓ Reset complete — InvoLens fetch failed: ' + e.message;
+        $('#debugResetResult').style.color = '#c05010';
+      }
+    } else {
+      toast('Reset complete. Connect Drive and refresh to reload orders.', 'success', 4000);
+    }
+  });
+
+  // Tracking Sync
+  const syncBtn = $('#runTrackingSyncBtn');
+  if(syncBtn) syncBtn.addEventListener('click', async () => {
+    if(!State.drive.connected){
+      toast('Connect Drive first', 'error'); return;
+    }
+    syncBtn.disabled = true;
+    syncBtn.textContent = '⏳ Running…';
+    $('#trackingSyncResult').style.display = 'none';
+    const bar = $('#trackingSyncBar');
+    const msg = $('#trackingSyncMsg');
+    const cnt = $('#trackingSyncCount');
+
+    try{
+      const report = await runTrackingSync((done, total, message) => {
+        const pct = total > 0 ? Math.round(100 * done / total) : 0;
+        if(bar) bar.style.width = pct + '%';
+        if(msg) msg.textContent = message;
+        if(cnt) cnt.textContent = total > 0 ? `${done} / ${total}` : '';
+      });
+
+      // Show result summary
+      const resultEl = $('#trackingSyncResult');
+      if(resultEl){
+        resultEl.style.display = 'block';
+        resultEl.innerHTML = `
+          <div style="color:var(--green);font-weight:600;margin-bottom:6px">✓ Sync complete</div>
+          <div>Cargo checked: ${report.cargoChecked}</div>
+          <div>Bluedart checked: ${report.bdChecked}</div>
+          <div>Statuses advanced: <strong>${report.advanced}</strong></div>
+          ${report.errors.length > 0 ? `<div style="color:#a16a0e">Errors: ${report.errors.length} (see console)</div>` : ''}
+          <div style="margin-top:6px;color:var(--ink-3);font-size:10.5px">Saved to tracklens_tracking.json · ${new Date().toLocaleTimeString('en-IN')}</div>
+        `;
+      }
+      const lastRun = $('#trackingSyncLastRun');
+      if(lastRun) lastRun.textContent = `Last run: just now · ${report.advanced} advanced`;
+      toast(`Tracking sync done — ${report.advanced} orders updated`, 'success', 4000);
+    } catch(err){
+      if(msg) msg.textContent = 'Error: ' + err.message;
+      if(bar) bar.style.background = 'var(--red)';
+      toast('Tracking sync failed: ' + err.message, 'error', 5000);
+    } finally {
+      syncBtn.disabled = false;
+      syncBtn.textContent = '▶ Run tracking sync now';
+    }
+  });
 
   // Bluedart — Test button
   const testBdBtn = $('#testBluedartBtn');
@@ -6408,6 +6616,9 @@ function initDrive(){
         if(orders) mergeDriveOrderStatuses(orders);
       }).catch(()=>{});
 
+      // v1.2 — Load cached tracking statuses
+      loadTrackingFromDrive();
+
       // v1.2 — Auto-poll Drive every 5 minutes for status updates from other devices
       startDrivePoll();
     }
@@ -6492,6 +6703,249 @@ function mergeDriveOrderStatuses(driveOrders, opts = {}){
     toast(`⚠ ${cancelChanges.length} order${cancelChanges.length > 1 ? 's' : ''} marked ${cancelChanges[0].to} by another device: ${names}`, 'error', 8000);
   } else if(opts.fromPoll){
     toast(`↻ ${changes.length} order${changes.length > 1 ? 's' : ''} updated from Drive`, 'success', 3000);
+  }
+}
+
+/* ============================================================
+ * TRACKING SYNC ENGINE — v1.2
+ * ============================================================
+ *
+ * Fetches tracking status for ALL orders with AWBs (last 15 days).
+ * Sources: Cargo shipment-list API + Bluedart tracking API.
+ * Results saved to tracklens_tracking.json in Drive.
+ * Auto-advances order statuses: picked_up → shipped, delivered → delivered, rto → rto.
+ *
+ * Run manually (button) or on a schedule (v1.3).
+ */
+
+const TRACKING_LOOKBACK_DAYS = 15;
+
+/* Top-level: run a full tracking sync for all orders.
+ * onProgress(done, total, msg) — for progress UI.
+ */
+async function runTrackingSync(onProgress){
+  const report = {
+    startedAt: new Date().toISOString(),
+    cargoChecked: 0, bdChecked: 0,
+    advanced: 0, errors: [],
+    results: {}  // awb → { status, source, raw }
+  };
+
+  const today = new Date();
+  const cutoff = new Date(today.getTime() - TRACKING_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const fmt = d => d.toISOString().slice(0, 10);
+
+  // Get all orders with AWBs in the lookback window
+  const ordersWithAwb = State.invoices.filter(r => {
+    if(!r.awb || !r.awbOk) return false;
+    // Include if invoice date is within lookback, OR status is already shipped/packed (still needs tracking)
+    const invDate = r.invoiceDate ? new Date(r.invoiceDate) : null;
+    const inWindow = invDate && invDate >= cutoff;
+    const activeStatus = ['dispatching','packed','shipped','ndr'].includes(r.status||'inbox');
+    return inWindow || activeStatus;
+  });
+
+  const cargoOrders = ordersWithAwb.filter(r => r.courier === 'cargo');
+  const bdOrders    = ordersWithAwb.filter(r => r.courier === 'bluedart');
+  const total = ordersWithAwb.length;
+
+  if(onProgress) onProgress(0, total, `Found ${total} orders to check (${cargoOrders.length} Cargo, ${bdOrders.length} BD)`);
+
+  // ── CARGO ──
+  if(cargoOrders.length > 0 && State.settings.cargo?.token){
+    if(onProgress) onProgress(0, total, `Fetching Cargo shipments (last ${TRACKING_LOOKBACK_DAYS} days)…`);
+    try{
+      const cargoStatuses = await fetchCargoTrackingBulk(fmt(cutoff), fmt(today), onProgress, report);
+      // Match back to orders by AWB
+      cargoOrders.forEach(r => {
+        const cs = cargoStatuses[r.awb];
+        if(cs){
+          report.results[r.awb] = { status: cs.tlStatus, source: 'cargo', statusLabel: cs.statusLabel };
+          report.cargoChecked++;
+        }
+      });
+    } catch(err){
+      report.errors.push({ source: 'cargo', error: err.message });
+      console.warn('[TrackLens][Sync] Cargo bulk fetch failed:', err.message);
+    }
+  }
+
+  // ── BLUEDART ──
+  if(bdOrders.length > 0 && State.settings.bluedart?.licenceKey){
+    if(onProgress) onProgress(report.cargoChecked, total, `Tracking ${bdOrders.length} Bluedart AWBs…`);
+    const bdAwbs = bdOrders.map(r => r.awb);
+    let done = 0;
+    const bdResults = await bluedartBulkTrack(bdAwbs, (d, t, awb) => {
+      done = d;
+      if(onProgress) onProgress(report.cargoChecked + done, total, `BD: ${awb}`);
+    });
+    Object.entries(bdResults).forEach(([awb, r]) => {
+      if(!r.isError){
+        report.results[awb] = { status: r.status, source: 'bluedart', statusLabel: r.statusDesc };
+        report.bdChecked++;
+      } else {
+        report.errors.push({ source: 'bluedart', awb, error: r.errorMsg });
+      }
+    });
+  }
+
+  // ── APPLY RESULTS ──
+  report.advanced = applyTrackingResults(report.results);
+  report.finishedAt = new Date().toISOString();
+
+  // ── SAVE TO DRIVE ──
+  if(State.drive.connected){
+    // Load existing tracking DB and merge
+    let existing = {};
+    try{
+      const saved = await readDriveJSON('tracklens_tracking.json');
+      if(saved && saved.results) existing = saved.results;
+    } catch(e){}
+    const merged = Object.assign({}, existing, report.results);
+    await writeDriveJSON('tracklens_tracking.json', {
+      lastSyncAt: report.finishedAt,
+      lookbackDays: TRACKING_LOOKBACK_DAYS,
+      results: merged
+    }).catch(e => console.warn('[TrackLens][Sync] Drive write failed:', e.message));
+  }
+
+  if(onProgress) onProgress(total, total, `Done — ${report.advanced} statuses advanced, ${report.errors.length} errors`);
+  return report;
+}
+
+/* Fetch all Cargo shipments in a date range and return AWB → status map.
+ * Uses pickup_date filter since that's what Cargo supports.
+ */
+async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
+  const statusMap = {};
+  // Statuses to check for the tracking use-case
+  const trackStatuses = ['pickup_scheduled', 'in_transit', 'out_for_delivery', 'delivered', 'rto', 'pickup_generated'];
+  const awbFields = ['waybill_no', 'awb', 'awb_code', 'awb_number', 'tracking_id', 'awb_no', 'waybill'];
+
+  for(const status of trackStatuses){
+    let page = 1;
+    let hasMore = true;
+    while(hasMore){
+      const qs = new URLSearchParams({
+        page: String(page),
+        page_size: '100',
+        status,
+        pickup_date_after:  dateFrom,
+        pickup_date_before: dateTo,
+        entity: 'shipment'
+      });
+      let data;
+      try{
+        data = await cargoFetch('/shipment-list/?' + qs.toString());
+      } catch(err){
+        console.warn(`[TrackLens][Sync] Cargo status=${status} page=${page} failed:`, err.message);
+        break;
+      }
+      const list = extractShipmentList(data);
+      list.forEach(s => {
+        const awb = awbFields.map(f => String(s[f]||'')).find(v => v.length > 0);
+        if(awb){
+          statusMap[awb] = {
+            tlStatus: mapCargoStatus(status),
+            statusLabel: status,
+            shipmentId: s.id,
+            raw: s
+          };
+        }
+      });
+      // Paginate
+      const total = data?.meta?.pagination?.total || data?.total || 0;
+      hasMore = list.length === 100 && page * 100 < total;
+      page++;
+      // Rate limit safety
+      if(hasMore) await new Promise(r => setTimeout(r, 200));
+    }
+  }
+  return statusMap;
+}
+
+/* Map Cargo status string to TrackLens internal status. */
+function mapCargoStatus(cargoStatus){
+  const m = {
+    'pickup_scheduled':   'shipped',
+    'pickup_generated':   'shipped',
+    'in_transit':         'shipped',
+    'out_for_delivery':   'shipped',
+    'delivered':          'delivered',
+    'rto':                'rto',
+    'rto_intransit':      'rto',
+    'rto_delivered':      'rto',
+    'ndr':                'ndr'
+  };
+  return m[cargoStatus] || 'shipped';
+}
+
+/* Apply tracking results from the sync report to State.invoices.
+ * Advances statuses: packed→shipped, shipped→delivered, etc.
+ * Returns count of orders advanced.
+ */
+function applyTrackingResults(results){
+  let advanced = 0;
+  Object.entries(results).forEach(([awb, r]) => {
+    const inv = State.invoices.find(x => x.awb === awb);
+    if(!inv) return;
+    // Store tracking info
+    inv.lastTracking = {
+      fetchedAt: new Date().toISOString(),
+      status: r.status,
+      source: r.source,
+      statusLabel: r.statusLabel
+    };
+    // Auto-advance status — never downgrade
+    const currentRank = statusRank(inv.status || 'inbox');
+    const newRank = statusRank(r.status);
+    if(newRank > currentRank){
+      const reason = `${r.source} confirmed ${r.statusLabel}`;
+      try{
+        // For delivered/rto we need to allow the transition
+        if(r.status === 'delivered' && ['shipped','ndr'].includes(inv.status)){
+          setOrderStatus(inv.id, 'delivered', { by:'auto', reason });
+          advanced++;
+        } else if(r.status === 'rto' && ['shipped','ndr','delivered'].includes(inv.status)){
+          setOrderStatus(inv.id, 'rto', { by:'auto', reason, force: true });
+          advanced++;
+        } else if(r.status === 'ndr' && inv.status === 'shipped'){
+          setOrderStatus(inv.id, 'ndr', { by:'auto', reason });
+          advanced++;
+        } else if(r.status === 'shipped' && ['dispatching','packed'].includes(inv.status)){
+          setOrderStatus(inv.id, 'shipped', { by:'auto', reason });
+          advanced++;
+        }
+      } catch(err){
+        console.warn(`[TrackLens][Sync] Could not advance ${inv.orderId}: ${err.message}`);
+      }
+    }
+  });
+  if(advanced > 0){
+    persistLocal();
+    renderInbox();
+    renderDispatch();
+    if(typeof renderBatch === 'function') renderBatch();
+  }
+  return advanced;
+}
+
+/* Numeric rank for status progression — never downgrade. */
+function statusRank(status){
+  const ranks = { inbox:0, planned:1, dispatching:2, packed:3, shipped:4, ndr:4, delivered:5, rto:5, cancel:-1, hold:0 };
+  return ranks[status] ?? 0;
+}
+
+/* Load tracking DB from Drive and apply to current orders (on app load). */
+async function loadTrackingFromDrive(){
+  if(!State.drive.connected) return;
+  try{
+    const db = await readDriveJSON('tracklens_tracking.json');
+    if(!db?.results) return;
+    const applied = applyTrackingResults(db.results);
+    if(applied > 0) console.log(`[TrackLens] Applied ${applied} tracking statuses from Drive cache`);
+  } catch(e){
+    console.warn('[TrackLens] Could not load tracking DB:', e.message);
   }
 }
 
