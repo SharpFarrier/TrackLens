@@ -1398,6 +1398,7 @@
           <thead>
             <tr>
               <th>Status</th>
+              <th>Tracking</th>
               <th>Order ID</th>
               <th>Date</th>
               <th>Platform</th>
@@ -2790,7 +2791,7 @@ function parsePromiseDate(raw){
  */
 
 const STATUS_DEFS = {
-  inbox:       { label: 'Master Database',  short: 'Inbox',       color: '#888',     bg: '#f0f0f0',  next: ['planned', 'hold', 'cancel'] },
+  inbox:       { label: 'Master Database',  short: 'Inbox',       color: '#888',     bg: '#f0f0f0',  next: ['planned', 'dispatching', 'hold', 'cancel'] },
   planned:     { label: 'Dispatch Today',   short: 'Planned',     color: '#1c5f95',  bg: '#eef5fa',  next: ['inbox', 'dispatching', 'hold', 'cancel'] },
   dispatching: { label: 'In Dispatch Queue',short: 'Dispatching', color: '#c87914',  bg: '#fbf0e2',  next: ['planned', 'packed', 'cancel'] },  // Pack & Ship
   hold:        { label: 'Hold',             short: 'Hold',        color: '#a16a0e',  bg: '#fbf0e2',  next: ['inbox', 'planned', 'cancel'] },
@@ -3408,11 +3409,11 @@ function suggestDispatchDate(row){
 
 // Statuses visible in the Inbox tab. Terminal/late-stage ones (shipped/delivered/etc)
 // belong in Track tab and are hidden here by default.
-const INBOX_VISIBLE_STATUSES = ['inbox', 'planned', 'hold', 'cancel', 'packed'];
+const INBOX_VISIBLE_STATUSES = ['inbox', 'planned', 'dispatching', 'hold', 'cancel', 'packed', 'shipped', 'delivered', 'ndr', 'rto'];
 
 // Inbox-specific state
 if(!State.inbox) State.inbox = {
-  selectedStatuses: new Set(['inbox', 'planned', 'hold']),  // default visible
+  selectedStatuses: new Set(['inbox', 'planned', 'dispatching', 'packed', 'shipped', 'ndr']),  // default visible
   search: ''
 };
 
@@ -3456,7 +3457,7 @@ function renderInbox(){
   if(tbody){
     tbody.innerHTML = '';
     if(filtered.length === 0){
-      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--ink-3);padding:40px">No orders match these filters.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--ink-3);padding:40px">No orders match these filters.</td></tr>`;
     } else {
       filtered.forEach(r => tbody.appendChild(renderInboxRow(r)));
     }
@@ -3484,7 +3485,7 @@ function renderInboxStatusChips(counts){
   const container = $('#inboxStatusChips');
   if(!container) return;
   // Show only the inbox-visible statuses + cancel
-  const visibleStatuses = ['inbox', 'planned', 'hold', 'cancel', 'packed'];
+  const visibleStatuses = ['inbox', 'planned', 'dispatching', 'packed', 'shipped', 'delivered', 'ndr', 'rto', 'hold', 'cancel'];
   container.innerHTML = visibleStatuses.map(s => {
     const def = STATUS_DEFS[s];
     const selected = State.inbox.selectedStatuses.has(s);
@@ -3514,7 +3515,7 @@ function renderInboxRow(r){
   const def = STATUS_DEFS[status] || STATUS_DEFS.inbox;
   const platformLabel = { amazon:'Amazon', flipkart:'Flipkart', d2c:'D2C', unknown:'?' }[r.platform];
 
-  // Status pill — shows label + dispatchDate if planned
+  // Status pill
   let statusPill = `<span class="order-status" style="background:${def.bg};color:${def.color}">
     <span class="sdot" style="background:${def.color}"></span>${escapeHtml(def.label)}`;
   if(status === 'planned' && r.dispatchDate){
@@ -3522,7 +3523,31 @@ function renderInboxRow(r){
   }
   statusPill += `</span>`;
 
-  // AWB cell — same as Plan tab
+  // Tracking cell — from lastTracking (set by tracking sync)
+  let trackingCell = '<span style="color:var(--ink-3);font-size:11px">—</span>';
+  if(r.lastTracking){
+    const t = r.lastTracking;
+    const trackColors = {
+      delivered: '#2d7d3a', shipped: '#5b3aa6', in_transit: '#5b3aa6',
+      picked_up: '#5b3aa6', out_for_delivery: '#1c5f95', ndr: '#c87914',
+      rto: '#a63333', booked: '#888', error: '#a63333'
+    };
+    const color = trackColors[t.status] || '#888';
+    const label = {
+      delivered: '✓ Delivered', shipped: '↑ In Transit', in_transit: '↑ In Transit',
+      picked_up: '↑ Picked Up', out_for_delivery: '⊙ Out for Delivery',
+      ndr: '⚠ NDR', rto: '↩ RTO', booked: '◉ Booked', error: '✗ Error'
+    }[t.status] || t.statusLabel || t.status;
+    const fetchedAgo = t.fetchedAt ? fmtRelative(t.fetchedAt) : '';
+    trackingCell = `<span style="color:${color};font-size:11px;font-weight:500" title="Source: ${escapeHtml(t.source||'')} · Fetched ${fetchedAgo}">${escapeHtml(label)}</span>`;
+  } else if(r.bdTracking){
+    // BD tracking from individual fetch
+    const t = r.bdTracking;
+    const color = t.status === 'delivered' ? '#2d7d3a' : t.status === 'ndr' ? '#c87914' : '#5b3aa6';
+    trackingCell = `<span style="color:${color};font-size:11px;font-weight:500" title="${escapeHtml(t.lastEvent||'')}">${escapeHtml(t.lastEvent||t.status)}</span>`;
+  }
+
+  // AWB cell
   let awbCell;
   if(!r.awb){
     awbCell = `<span style="color:var(--red)">missing</span>`;
@@ -3536,6 +3561,7 @@ function renderInboxRow(r){
 
   tr.innerHTML = `
     <td>${statusPill}</td>
+    <td>${trackingCell}</td>
     <td class="mono">${escapeHtml(r.orderId || '—')}</td>
     <td>${escapeHtml(r.invoiceDate || '—')}</td>
     <td><span class="tag ${r.platform}">${platformLabel}</span></td>
@@ -3549,7 +3575,7 @@ function renderInboxRow(r){
     </td>
   `;
 
-  // Right-click context menu on whole row
+  // Right-click context menu
   tr.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     openStatusMenu(r.id, e.clientX, e.clientY);
