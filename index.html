@@ -6747,7 +6747,7 @@ function mergeDriveOrderStatuses(driveOrders, opts = {}){
  * Run manually (button) or on a schedule (v1.3).
  */
 
-const TRACKING_LOOKBACK_DAYS = 15;
+const TRACKING_LOOKBACK_DAYS = 30;
 
 /* Top-level: run a full tracking sync for all orders.
  * onProgress(done, total, msg) — for progress UI.
@@ -6791,6 +6791,19 @@ async function runTrackingSync(onProgress){
   const cargoOrders = ordersWithAwb.filter(r => r.courier === 'cargo');
   const bdOrders    = ordersWithAwb.filter(r => r.courier === 'bluedart');
   const total = ordersWithAwb.length;
+
+  // Pre-pass: auto-tag untagged orders by AWB pattern before API calls
+  let preTagged = 0;
+  State.invoices.forEach(r => {
+    if(!r.courier && r.awb && r.awbOk){
+      const sug = suggestCourierFromAwb(r.awb);
+      if(sug){ r.courier = sug; preTagged++; }
+    }
+  });
+  if(preTagged > 0){
+    console.log(`[TrackLens][Sync] Pre-tagged ${preTagged} orders by AWB pattern`);
+    persistLocal();
+  }
 
   if(onProgress) onProgress(0, total, `Found ${total} orders with AWBs. Fetching from Cargo + Bluedart…`);
 
