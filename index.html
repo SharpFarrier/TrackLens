@@ -7037,6 +7037,36 @@ function applyTrackingResults(results){
   return advanced;
 }
 
+/* ── DIAGNOSTIC: run diagCargoAwb('20894541457985') in console to find what status an AWB is under ── */
+async function diagCargoAwb(awb){
+  const allStatuses = ['ready_to_ship','pickup_scheduled','pickup_generated','in_transit',
+    'out_for_delivery','delivered','rto','ndr','cancelled','shipment_created','processing','pending'];
+  const today = new Date().toISOString().slice(0,10);
+  const cutoff = new Date(Date.now() - 60*24*60*60*1000).toISOString().slice(0,10);
+  const awbFields = ['waybill_no','awb','awb_code','awb_number','tracking_id','awb_no','waybill'];
+  console.log('[Diag] Searching AWB ' + awb + ' across ALL Cargo statuses (60-day window)...');
+  for(const status of allStatuses){
+    const qs = new URLSearchParams({page:'1',page_size:'100',status,
+      created_at_after:cutoff,created_at_before:today,entity:'shipment'});
+    try{
+      const data = await cargoFetch('/shipment-list/?'+qs);
+      const list = extractShipmentList(data);
+      const match = list.find(s => awbFields.some(f => String(s[f]||'').trim() === String(awb).trim()));
+      if(match){
+        console.log('[Diag] FOUND under status=' + status + ':', JSON.stringify(match).slice(0,400));
+        return { status, match };
+      }
+      if(list.length > 0){
+        const sampleAwbs = list.slice(0,3).map(s=>awbFields.map(f=>s[f]||'').find(v=>v.length>5)||'?');
+        console.log('[Diag] status=' + status + ': ' + list.length + ' rows, no match. Sample AWBs:', sampleAwbs);
+      }
+    } catch(e){ console.log('[Diag] status=' + status + ' error:', e.message); }
+  }
+  console.log('[Diag] AWB ' + awb + ' NOT FOUND under any status in 60-day window');
+  return null;
+}
+window.diagCargoAwb = diagCargoAwb;
+
 /* Numeric rank for status progression — never downgrade. */
 function statusRank(status){
   const ranks = { inbox:0, planned:1, dispatching:2, packed:3, shipped:4, ndr:4, delivered:5, rto:5, cancel:-1, hold:0 };
