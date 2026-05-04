@@ -6956,9 +6956,9 @@ async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
           totalFound++;
         }
       });
-      // Paginate
-      const total = data?.meta?.pagination?.total || data?.total || 0;
-      hasMore = list.length === 100 && page * 100 < total;
+      // Paginate: Cargo API returns total=0 even when more pages exist.
+      // Always fetch next page if current page returned a full 100 rows.
+      hasMore = list.length === 100;
       page++;
       if(hasMore) await new Promise(r => setTimeout(r, 200));
     }
