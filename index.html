@@ -1523,6 +1523,19 @@
         <div class="ub-meta" id="ubPlanContext">Planning for today</div>
       </div>
 
+      <div class="filter-bar" style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line)">
+        <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;color:var(--ink-3);margin-right:6px">Show:</span>
+        <div class="filter-chip active" id="planSf-planned" data-plan-sf="planned">
+          Planned <span class="count" id="fc-sf-planned">0</span>
+        </div>
+        <div class="filter-chip" id="planSf-inbox" data-plan-sf="inbox">
+          Inbox (unplanned) <span class="count" id="fc-sf-inbox">0</span>
+        </div>
+        <div class="filter-chip" id="planSf-all" data-plan-sf="all">
+          All <span class="count" id="fc-sf-all">0</span>
+        </div>
+      </div>
+
       <div class="filter-bar">
         <div class="filter-chip active" data-filter="all">All <span class="count" id="fc-all">0</span></div>
         <div class="filter-chip" data-filter="ready">Ready <span class="count" id="fc-ready">0</span></div>
@@ -2134,7 +2147,8 @@ const State = {
   planning: {
     planDate: null,           // YYYY-MM-DD - which date the user is planning dispatch FOR
     view: 'orders',           // 'orders' | 'picklist' (the toggle on Today's Dispatch)
-    urgencyFilter: 'all'      // 'all' | 'critical' | 'high' | 'medium' | 'low'
+    urgencyFilter: 'all',     // 'all' | 'urgent' | 'tight' | 'medium' | 'relaxed'
+    statusFilter: 'planned'   // v1.2: 'planned' (default) | 'inbox' | 'all'
   }
 };
 
@@ -3898,13 +3912,21 @@ function renderDispatch(){
   // mutates State.invoices.
   const allRows = (State.invoices || []).map(applyAwbOverride);
   const total = allRows.length;
-  // v1.2: Plan tab badge shows count of orders that need planning (inbox + planned)
-  const planRelevant = allRows.filter(r => {
-    const s = r.status || 'inbox';
-    return s === 'inbox' || s === 'planned';
-  }).length;
-  setText('#planCount', planRelevant);
-  setText('#queueCount', total + ' orders');
+  // v1.2: planCount badge = orders with status='planned' (committed to a date)
+  const plannedCount  = allRows.filter(r => (r.status||'inbox') === 'planned').length;
+  const inboxCount    = allRows.filter(r => (r.status||'inbox') === 'inbox').length;
+  setText('#planCount', plannedCount);
+  setText('#fc-sf-planned', plannedCount);
+  setText('#fc-sf-inbox', inboxCount);
+  setText('#fc-sf-all', plannedCount + inboxCount);
+  setText('#queueCount', (plannedCount + inboxCount) + ' orders');
+
+  // Highlight active status filter chip
+  const sf = State.planning.statusFilter || 'planned';
+  ['planned','inbox','all'].forEach(k => {
+    const el = $(`#planSf-${k}`);
+    if(el) el.classList.toggle('active', k === sf);
+  });
 
   if(total === 0){
     setStyle('#dispatchEmpty', 'display', 'block');
@@ -4115,19 +4137,24 @@ function renderPicklistGroup(g){
 }
 
 function filterRowsWithUrgency(allRows){
-  // v1.2 Model A: Plan tab is the planning workspace.
-  // Only shows inbox (unplanned) and planned orders.
-  // dispatching/packed/shipped/hold/cancel belong in Pack & Ship or Track.
-  const PLAN_VISIBLE = new Set(['inbox', 'planned']);
-  let rows = allRows.filter(r => PLAN_VISIBLE.has(r.status || 'inbox'));
+  // v1.2 Model A: Plan tab shows inbox + planned.
+  // statusFilter controls which subset the user sees.
+  const sf = State.planning.statusFilter || 'planned';
+  let rows = allRows.filter(r => {
+    const s = r.status || 'inbox';
+    if(s !== 'inbox' && s !== 'planned') return false; // hard gate — dispatching/packed never show here
+    if(sf === 'planned') return s === 'planned';
+    if(sf === 'inbox')   return s === 'inbox';
+    return true; // 'all'
+  });
 
-  // Existing filters
+  // AWB/courier filters
   switch(State.filter){
-    case 'ready': rows = rows.filter(r => r.awb && r.awbOk && r.courier); break;
+    case 'ready':    rows = rows.filter(r => r.awb && r.awbOk && r.courier); break;
     case 'untagged': rows = rows.filter(r => !r.courier); break;
-    case 'missing': rows = rows.filter(r => !r.awb || !r.awbOk); break;
+    case 'missing':  rows = rows.filter(r => !r.awb || !r.awbOk); break;
   }
-  // v1.2 — Days-left bucket filter
+  // Days-left bucket filter
   const f = State.planning.urgencyFilter;
   if(f && f !== 'all'){
     rows = rows.filter(r => r._daysLeft?.bucket === f);
@@ -5432,6 +5459,15 @@ async function runDispatchBatch(){
   const sel = State.batch.selected;
   const all = batchFilteredRows();
   // We process in the same DESC order they appear in the filtered table.
+  // Hard guard: never generate labels for cancelled, hold, or inbox orders.
+  // If a status change came in from another device via Drive poll, this blocks dispatch.
+  const BLOCKED_STATUSES = new Set(['cancel', 'hold', 'inbox', 'delivered', 'rto']);
+  const blocked = all.filter(r => sel.has(r.id) && BLOCKED_STATUSES.has(r.status || 'inbox'));
+  if(blocked.length > 0){
+    const names = blocked.map(r => r.orderId).join(', ');
+    toast(`⚠ Cannot dispatch — ${blocked.length} order${blocked.length > 1 ? 's are' : ' is'} ${blocked[0].status}: ${names}`, 'error', 6000);
+    return;
+  }
   const queue = all.filter(r => sel.has(r.id) && r.courier === 'cargo' && r.awb && r.awbOk && !State.dispatched[r.id]);
 
   if(queue.length === 0){
@@ -5787,11 +5823,21 @@ function bindTabs(){
 
 /* ------------------- Filters ------------------- */
 function bindFilters(){
-  $$('.filter-chip').forEach(c => {
+  // AWB/courier filter chips (data-filter attribute)
+  $$('[data-filter]').forEach(c => {
     c.addEventListener('click', () => {
-      $$('.filter-chip').forEach(x => x.classList.remove('active'));
+      $$('[data-filter]').forEach(x => x.classList.remove('active'));
       c.classList.add('active');
       State.filter = c.dataset.filter;
+      renderDispatch();
+    });
+  });
+
+  // Status filter chips (data-plan-sf attribute) — planned | inbox | all
+  $$('[data-plan-sf]').forEach(c => {
+    c.addEventListener('click', () => {
+      State.planning.statusFilter = c.dataset.planSf;
+      persistLocal();
       renderDispatch();
     });
   });
@@ -6079,8 +6125,6 @@ function initDrive(){
       readDriveJSON('tracklens_settings.json').then(s => {
         if(s) Object.assign(State.settings, s);
         applySettingsToInputs();
-        // Once settings are hydrated (which may include the InvoLens folder ID),
-        // try the auto-fetch. Silent — user-driven runs use the Refresh button instead.
         if(State.settings.involens?.dataFolderId){
           fetchInvolensFromDrive({ silent: true, force: false }).catch(e => {
             console.warn('[TrackLens] Auto-fetch from Drive failed:', e);
@@ -6093,6 +6137,14 @@ function initDrive(){
           renderCargoAuthResult({ ok: true, token: State.tokens.cargo });
         }
       }).catch(()=>{});
+
+      // v1.2 — Read tracklens_orders.json (status tags written by other devices)
+      readDriveJSON('tracklens_orders.json').then(orders => {
+        if(orders) mergeDriveOrderStatuses(orders);
+      }).catch(()=>{});
+
+      // v1.2 — Auto-poll Drive every 5 minutes for status updates from other devices
+      startDrivePoll();
     }
   });
 }
@@ -6101,6 +6153,81 @@ function ensureDrive(){
   if(!tokenClient){ initDrive(); setTimeout(ensureDrive, 400); return; }
   if(State.drive.accessToken) return;
   tokenClient.requestAccessToken({ prompt: '' });
+}
+
+/* ============================================================
+ * v1.2 — Drive auto-poll + order status sync
+ * ============================================================
+ *
+ * Polls tracklens_orders.json every 5 minutes. If another device has
+ * updated any order's status (e.g., cancel, hold), we merge those
+ * changes in and re-render. Shows a toast with what changed.
+ */
+const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+let _pollTimer = null;
+
+function startDrivePoll(){
+  if(_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(pollDriveForStatusUpdates, POLL_INTERVAL_MS);
+  console.log('[TrackLens] Drive poll started (every 5 min)');
+}
+
+async function pollDriveForStatusUpdates(){
+  if(!State.drive.connected || !State.drive.accessToken) return;
+  try{
+    const orders = await readDriveJSON('tracklens_orders.json');
+    if(orders) mergeDriveOrderStatuses(orders, { fromPoll: true });
+  } catch(e){
+    console.warn('[TrackLens] Poll failed:', e.message);
+  }
+}
+
+/* Merge status changes from Drive into local state.
+ * Only applies NEWER status data (based on statusHistory length / timestamps).
+ * Never overwrites local status with a staler one.
+ */
+function mergeDriveOrderStatuses(driveOrders, opts = {}){
+  if(!Array.isArray(driveOrders) || driveOrders.length === 0) return;
+  const changes = [];
+  driveOrders.forEach(driveInv => {
+    const local = State.invoices.find(r => r.id === driveInv.id);
+    if(!local) return;
+    // Compare: only update if Drive has a newer/different status
+    const driveStatus = driveInv.status;
+    if(!driveStatus || !STATUS_DEFS[driveStatus]) return;
+    if(driveStatus === local.status) return;
+    // Drive has a different status — check which is newer via statusHistory
+    const driveHistLen = (driveInv.statusHistory || []).length;
+    const localHistLen = (local.statusHistory || []).length;
+    if(driveHistLen <= localHistLen) return; // local is newer or same, keep local
+    // Drive is newer — apply it
+    const oldStatus = local.status;
+    local.status = driveStatus;
+    local.dispatchDate = driveInv.dispatchDate || local.dispatchDate;
+    local.statusHistory = driveInv.statusHistory || local.statusHistory;
+    local.packedAt = driveInv.packedAt || local.packedAt;
+    local.shippedAt = driveInv.shippedAt || local.shippedAt;
+    changes.push({ id: local.id, orderId: local.orderId, from: oldStatus, to: driveStatus });
+  });
+
+  if(changes.length === 0) return;
+
+  // Persist merged state
+  persistLocal();
+
+  // Re-render all tabs
+  renderInbox();
+  renderDispatch();
+  if(typeof renderBatch === 'function') renderBatch();
+
+  // Toast with summary
+  const cancelChanges = changes.filter(c => c.to === 'cancel' || c.to === 'hold');
+  if(cancelChanges.length > 0){
+    const names = cancelChanges.map(c => c.orderId).join(', ');
+    toast(`⚠ ${cancelChanges.length} order${cancelChanges.length > 1 ? 's' : ''} marked ${cancelChanges[0].to} by another device: ${names}`, 'error', 8000);
+  } else if(opts.fromPoll){
+    toast(`↻ ${changes.length} order${changes.length > 1 ? 's' : ''} updated from Drive`, 'success', 3000);
+  }
 }
 
 async function findFileId(name){
