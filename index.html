@@ -2226,8 +2226,9 @@ const COURIER_BY_KEY = Object.fromEntries(COURIER_OPTIONS.map(c => [c.key, c]));
 function suggestCourierFromAwb(awb){
   if(!awb) return null;
   const s = String(awb).replace(/\s+/g, '');
-  if(/^2089\d{10}$/.test(s)) return 'cargo';   // Shiprocket Cargo (Delhivery underlying)
-  if(/^[56]\d{13}$/.test(s)) return 'bluedart';
+  if(/^2089\d{10}$/.test(s)) return 'cargo';     // Shiprocket Cargo (14 digits, starts 2089)
+  if(/^[56]\d{13}$/.test(s)) return 'bluedart';  // BD 14-digit format
+  if(/^[56]\d{9,11}$/.test(s)) return 'bluedart'; // BD 11-digit format (509..., 528..., 685...)
   return null;
 }
 
@@ -6811,9 +6812,11 @@ async function runTrackingSync(onProgress){
   const bdCandidates = State.invoices.filter(r => {
     if(!r.awb || !r.awbOk) return false;
     if(r.courier === 'bluedart') return true;
-    // Also check AWB pattern: BD AWBs start with 5 and are 14 digits
-    return /^5\d{13}$/.test(String(r.awb).trim());
+    // BD AWB patterns: 11-14 digit AWBs starting with 5 or 6
+    const awb = String(r.awb).trim();
+    return /^[56]\d{9,13}$/.test(awb);
   });
+  console.log('[TrackLens][Sync] BD candidates:', bdCandidates.length, bdCandidates.slice(0,5).map(r=>r.awb));
   if(bdCandidates.length > 0 && State.settings.bluedart?.licenceKey){
     if(onProgress) onProgress(report.cargoChecked, total, `Tracking ${bdCandidates.length} Bluedart AWBs…`);
     const bdAwbs = bdCandidates.map(r => r.awb);
