@@ -2044,7 +2044,7 @@
 
           <div style="margin-top:16px;font-size:11.5px;color:var(--ink-2);line-height:1.7">
             <strong>What it does:</strong><br>
-            → Calls Cargo shipment-list API (pickup_date last 15 days)<br>
+            → Calls Cargo shipment-list API (created last 15 days)<br>
             → Calls Bluedart tracking API for each BD AWB<br>
             → Auto-advances statuses: dispatching/packed → shipped → delivered/RTO/NDR<br>
             → Saves full results to Drive for offline use<br>
@@ -6775,18 +6775,25 @@ async function runTrackingSync(onProgress){
   const bdOrders    = ordersWithAwb.filter(r => r.courier === 'bluedart');
   const total = ordersWithAwb.length;
 
-  if(onProgress) onProgress(0, total, `Found ${total} orders to check (${cargoOrders.length} Cargo, ${bdOrders.length} BD)`);
+  if(onProgress) onProgress(0, total, `Found ${total} orders with AWBs. Fetching from Cargo + Bluedart…`);
 
   // ── CARGO ──
-  if(cargoOrders.length > 0 && State.settings.cargo?.token){
+  // Fetch ALL Cargo shipments in date window — don't filter by courier tag first.
+  // After reset, orders may have no courier tag yet. We match by AWB after fetching.
+  if(State.settings.cargo?.token){
     if(onProgress) onProgress(0, total, `Fetching Cargo shipments (last ${TRACKING_LOOKBACK_DAYS} days)…`);
     try{
       const cargoStatuses = await fetchCargoTrackingBulk(fmt(cutoff), fmt(today), onProgress, report);
-      // Match back to orders by AWB
-      cargoOrders.forEach(r => {
-        const cs = cargoStatuses[r.awb];
+      console.log('[TrackLens][Sync] Cargo returned', Object.keys(cargoStatuses).length, 'unique AWBs');
+      // Match against ALL orders (not just cargo-tagged ones) — auto-tag courier if matched
+      State.invoices.forEach(r => {
+        if(!r.awb || !r.awbOk) return;
+        const normAwb = String(r.awb).trim();
+        const cs = cargoStatuses[normAwb];
         if(cs){
-          report.results[r.awb] = { status: cs.tlStatus, source: 'cargo', statusLabel: cs.statusLabel };
+          // Auto-tag courier if not yet set
+          if(!r.courier) r.courier = 'cargo';
+          report.results[normAwb] = { status: cs.tlStatus, source: 'cargo', statusLabel: cs.statusLabel };
           report.cargoChecked++;
         }
       });
@@ -6794,12 +6801,22 @@ async function runTrackingSync(onProgress){
       report.errors.push({ source: 'cargo', error: err.message });
       console.warn('[TrackLens][Sync] Cargo bulk fetch failed:', err.message);
     }
+  } else {
+    console.warn('[TrackLens][Sync] Cargo token not set — skipping Cargo tracking');
   }
 
   // ── BLUEDART ──
-  if(bdOrders.length > 0 && State.settings.bluedart?.licenceKey){
-    if(onProgress) onProgress(report.cargoChecked, total, `Tracking ${bdOrders.length} Bluedart AWBs…`);
-    const bdAwbs = bdOrders.map(r => r.awb);
+  // For BD, we need AWBs. Use all orders with BD-pattern AWBs (starts with 5, 14 digits)
+  // or explicitly tagged as bluedart.
+  const bdCandidates = State.invoices.filter(r => {
+    if(!r.awb || !r.awbOk) return false;
+    if(r.courier === 'bluedart') return true;
+    // Also check AWB pattern: BD AWBs start with 5 and are 14 digits
+    return /^5\d{13}$/.test(String(r.awb).trim());
+  });
+  if(bdCandidates.length > 0 && State.settings.bluedart?.licenceKey){
+    if(onProgress) onProgress(report.cargoChecked, total, `Tracking ${bdCandidates.length} Bluedart AWBs…`);
+    const bdAwbs = bdCandidates.map(r => r.awb);
     let done = 0;
     const bdResults = await bluedartBulkTrack(bdAwbs, (d, t, awb) => {
       done = d;
@@ -6807,6 +6824,9 @@ async function runTrackingSync(onProgress){
     });
     Object.entries(bdResults).forEach(([awb, r]) => {
       if(!r.isError){
+        // Auto-tag courier
+        const inv = State.invoices.find(x => x.awb && String(x.awb).trim() === String(awb).trim());
+        if(inv && !inv.courier) inv.courier = 'bluedart';
         report.results[awb] = { status: r.status, source: 'bluedart', statusLabel: r.statusDesc };
         report.bdChecked++;
       } else {
