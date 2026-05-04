@@ -6764,35 +6764,7 @@ async function runTrackingSync(onProgress){
   const cutoff = new Date(today.getTime() - TRACKING_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const fmt = d => d.toISOString().slice(0, 10);
 
-  // Full coverage analysis — categorise every order with an AWB
-  const allWithAwb = State.invoices.filter(r => r.awb);
-  const coverage = {
-    cargoPattern:   allWithAwb.filter(r => r.awbOk && /^2089\d{10}$/.test(String(r.awb).trim())),
-    bdPattern:      allWithAwb.filter(r => r.awbOk && /^[56]\d{9,13}$/.test(String(r.awb).trim())),
-    badAwb:         allWithAwb.filter(r => !r.awbOk),
-    otherAwb:       allWithAwb.filter(r => r.awbOk && !/^2089\d{10}$/.test(String(r.awb).trim()) && !/^[56]\d{9,13}$/.test(String(r.awb).trim()))
-  };
-  console.log('[TrackLens][Sync] Coverage analysis:',
-    `\n  Cargo pattern (2089...): ${coverage.cargoPattern.length}`,
-    `\n  BD pattern (5/6...): ${coverage.bdPattern.length}`,
-    `\n  Bad AWB (corrupted): ${coverage.badAwb.length}`,
-    `\n  Other/unknown pattern: ${coverage.otherAwb.length}`,
-    `\n  Sample other AWBs:`, coverage.otherAwb.slice(0,10).map(r=>`${r.awb}(${r.courier||'untagged'})`)
-  );
-
-  const ordersWithAwb = allWithAwb.filter(r => {
-    if(!r.awbOk) return false;
-    const invDate = r.invoiceDate ? new Date(r.invoiceDate) : null;
-    const inWindow = invDate && invDate >= cutoff;
-    const activeStatus = ['dispatching','packed','shipped','ndr'].includes(r.status||'inbox');
-    return inWindow || activeStatus;
-  });
-
-  const cargoOrders = ordersWithAwb.filter(r => r.courier === 'cargo');
-  const bdOrders    = ordersWithAwb.filter(r => r.courier === 'bluedart');
-  const total = ordersWithAwb.length;
-
-  // Pre-pass: auto-tag untagged orders by AWB pattern before API calls
+  // Step 1: Auto-tag untagged orders by AWB pattern BEFORE building the candidate list
   let preTagged = 0;
   State.invoices.forEach(r => {
     if(!r.courier && r.awb && r.awbOk){
@@ -6804,6 +6776,30 @@ async function runTrackingSync(onProgress){
     console.log(`[TrackLens][Sync] Pre-tagged ${preTagged} orders by AWB pattern`);
     persistLocal();
   }
+
+  // Step 2: Build candidate lists (now includes freshly-tagged orders)
+  const allWithAwb = State.invoices.filter(r => r.awb);
+  const coverage = {
+    cargoPattern: allWithAwb.filter(r => r.awbOk && /^2089\d{10}$/.test(String(r.awb).trim())),
+    bdPattern:    allWithAwb.filter(r => r.awbOk && /^[56]\d{9,13}$/.test(String(r.awb).trim())),
+    badAwb:       allWithAwb.filter(r => !r.awbOk),
+    otherAwb:     allWithAwb.filter(r => r.awbOk && !/^2089\d{10}$/.test(String(r.awb).trim()) && !/^[56]\d{9,13}$/.test(String(r.awb).trim()))
+  };
+  console.log('[TrackLens][Sync] Coverage:',
+    `Cargo=${coverage.cargoPattern.length} BD=${coverage.bdPattern.length}`,
+    `bad=${coverage.badAwb.length} other=${coverage.otherAwb.length}`,
+    coverage.otherAwb.length > 0 ? 'Other AWBs: ' + coverage.otherAwb.slice(0,5).map(r=>r.awb).join(',') : ''
+  );
+
+  const ordersWithAwb = allWithAwb.filter(r => {
+    if(!r.awbOk) return false;
+    const invDate = r.invoiceDate ? new Date(r.invoiceDate) : null;
+    const inWindow = invDate && invDate >= cutoff;
+    const activeStatus = ['dispatching','packed','shipped','ndr','inbox','planned'].includes(r.status||'inbox');
+    return inWindow || activeStatus;
+  });
+
+  const total = ordersWithAwb.length;
 
   if(onProgress) onProgress(0, total, `Found ${total} orders with AWBs. Fetching from Cargo + Bluedart…`);
 
