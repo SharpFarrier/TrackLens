@@ -6764,6 +6764,23 @@ async function runTrackingSync(onProgress){
   const cutoff = new Date(today.getTime() - TRACKING_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const fmt = d => d.toISOString().slice(0, 10);
 
+  // Rollback: fix orders incorrectly advanced to 'shipped' via ready_to_ship in previous syncs
+  let rolledBack = 0;
+  State.invoices.forEach(r => {
+    if(r.status === 'shipped' &&
+       r.lastTracking?.source === 'cargo' &&
+       ['ready_to_ship', 'pickup_scheduled', 'pickup_generated'].includes(r.lastTracking?.statusLabel)){
+      r.status = 'packed';
+      if(!r.statusHistory) r.statusHistory = [];
+      r.statusHistory.push({ from:'shipped', to:'packed', at: new Date().toISOString(), by:'auto', reason:'rollback: label generated / pickup requested — not yet physically collected' });
+      rolledBack++;
+    }
+  });
+  if(rolledBack > 0){
+    console.log(`[TrackLens][Sync] Rolled back ${rolledBack} orders from shipped → dispatching (ready_to_ship ≠ picked up)`);
+    persistLocal();
+  }
+
   // Step 1: Auto-tag untagged orders by AWB pattern BEFORE building the candidate list
   let preTagged = 0;
   State.invoices.forEach(r => {
@@ -6958,13 +6975,22 @@ async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
   return statusMap;
 }
 
-/* Map Cargo status string to TrackLens internal status. */
+/* Map Cargo status string to TrackLens internal status.
+ *
+ * Cargo lifecycle:
+ *   ready_to_ship / pickup_generated / pickup_scheduled
+ *     → label generated OR pickup booked, courier has NOT physically collected yet
+ *     → map to 'packed' (stays in Pack & Ship awaiting real collection)
+ *   in_transit
+ *     → FIRST signal courier physically collected the parcel
+ *     → map to 'shipped'
+ */
 function mapCargoStatus(cargoStatus){
   const m = {
-    'ready_to_ship':      'shipped',  // dispatched, awaiting courier pickup
-    'pickup_scheduled':   'shipped',
-    'pickup_generated':   'shipped',
-    'in_transit':         'shipped',
+    'ready_to_ship':      'packed',   // label generated, not yet collected
+    'pickup_generated':   'packed',   // pickup request sent, courier not arrived
+    'pickup_scheduled':   'packed',   // pickup request sent, courier not arrived
+    'in_transit':         'shipped',  // courier confirmed physical collection
     'out_for_delivery':   'shipped',
     'delivered':          'delivered',
     'rto':                'rto',
@@ -6972,7 +6998,7 @@ function mapCargoStatus(cargoStatus){
     'rto_delivered':      'rto',
     'ndr':                'ndr'
   };
-  return m[cargoStatus] || 'shipped';
+  return m[cargoStatus] || null;
 }
 
 /* Apply tracking results from the sync report to State.invoices.
@@ -6994,6 +7020,8 @@ function applyTrackingResults(results){
       source: r.source,
       statusLabel: r.statusLabel
     };
+    // null status = don't advance (e.g. ready_to_ship = label generated, not picked up yet)
+    if(!r.status){ alreadyAdvanced++; return; }
     const currentRank = statusRank(inv.status || 'inbox');
     const newRank = statusRank(r.status);
     if(newRank <= currentRank){ alreadyAdvanced++; return; }
