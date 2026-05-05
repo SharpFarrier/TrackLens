@@ -1801,19 +1801,26 @@
 
           <!-- Bluedart -->
           <div class="field-group">
-            <label>Bluedart — Licence Key <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from your Bluedart portal — used for shipment tracking)</span></label>
-            <input type="password" class="mono" id="cred-bd-licenceKey" placeholder="32-character licence key" autocomplete="off" />
+            <label>Bluedart — Login ID <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from Shypassist → Settings → Bluedart → Client field)</span></label>
+            <input type="text" class="mono" id="cred-bd-loginId" placeholder="e.g. BOM41184 or logistics@klick-ventures.com" autocomplete="off" />
           </div>
           <div class="field-group">
             <label>Bluedart — API Password <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from Shypassist → Settings → Bluedart → Password field)</span></label>
             <input type="password" class="mono" id="cred-bd-password" placeholder="Bluedart API password" autocomplete="off" />
+          </div>
+          <div class="field-group">
+            <label>Bluedart — Licence Key <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(Token field in Shypassist)</span></label>
+            <input type="password" class="mono" id="cred-bd-licenceKey" placeholder="32-character licence key" autocomplete="off" />
+          </div>
+          <div class="field-group">
+            <label>Bluedart — Customer Code <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from Shypassist → Settings → Bluedart → Customer Code field)</span></label>
+            <input type="text" class="mono" id="cred-bd-customerCode" placeholder="e.g. BOM485892" autocomplete="off" />
             <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
               <button class="btn ghost sm" id="testBluedartBtn">Test Bluedart tracking</button>
               <span id="bdAuthResult" style="font-size:11.5px;color:var(--ink-3)"></span>
             </div>
             <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
-              User ID: <span class="mono">BOM41184</span> · Customer Code: <span class="mono">BOM485892</span> (pre-configured)<br>
-              Note: Labels for Bluedart shipments continue to be printed from Shypassist. TrackLens uses this key for tracking status only.
+              Note: Labels for Bluedart shipments continue to be printed from Shypassist. TrackLens uses these credentials for tracking status only.
             </div>
           </div>
 
@@ -2709,9 +2716,8 @@ function restoreLocal(){
   if(!State.settings.involens) State.settings.involens = { dataFolderId: '', invoicesFolderId: '', lastFetchedAt: null, lastModifiedTime: null };
   if(typeof State.settings.involens.dataFolderId !== 'string') State.settings.involens.dataFolderId = '';
   if(!State.settings.proxy) State.settings.proxy = { url: '' };
-  if(!State.settings.bluedart) State.settings.bluedart = { loginId: 'BOM41184', licenceKey: '', password: '', customerCode: 'BOM485892' };
-  if(!State.settings.bluedart.password) State.settings.bluedart.password = '';
-  if(!State.settings.bluedart.customerCode || State.settings.bluedart.customerCode === '485892') State.settings.bluedart.customerCode = 'BOM485892';
+  if(!State.settings.bluedart) State.settings.bluedart = { loginId: '', licenceKey: '', password: '', customerCode: '' };
+  if(State.settings.bluedart.password === undefined) State.settings.bluedart.password = '';
   if(!State.settings.transitOverrides || typeof State.settings.transitOverrides !== 'object') State.settings.transitOverrides = {};
   if(!State.settings.pincodeTransitOverrides || typeof State.settings.pincodeTransitOverrides !== 'object') State.settings.pincodeTransitOverrides = {};
   if(typeof State.settings.transitBufferDays !== 'number' || State.settings.transitBufferDays < 0) State.settings.transitBufferDays = 0;
@@ -5220,10 +5226,10 @@ function batchFilteredRows(){
 function getBluedartCreds(){
   const bd = State.settings.bluedart || {};
   return {
-    loginId:      bd.loginId      || 'BOM41184',
+    loginId:      bd.loginId      || '',
     licenceKey:   bd.licenceKey   || '',
     password:     bd.password     || '',
-    customerCode: bd.customerCode || 'BOM485892'
+    customerCode: bd.customerCode || ''
   };
 }
 
@@ -5236,7 +5242,7 @@ async function bluedartTrackAwb(awb){
 
   const base = getProxyBase();
   // Route through proxy: Worker forwards /bluedart/* to api.bluedart.com
-  if(!creds.password) throw new Error('Bluedart API password not configured in Settings → Courier APIs');
+  if(!creds.password) throw new Error('Bluedart API password not configured — Settings → Courier APIs');
   const params = new URLSearchParams({
     handler:  'tnt',
     action:   'custawbquery',
@@ -5256,8 +5262,7 @@ async function bluedartTrackAwb(awb){
   if(!resp.ok) throw new Error(`Bluedart API HTTP ${resp.status}`);
 
   const xmlText = await resp.text();
-  const ct = resp.headers.get('content-type') || '';
-  console.log(`[TrackLens][BD] AWB ${awb}: ${xmlText.length} chars, ${ct}`);
+  console.log(`[TrackLens][BD] AWB ${awb}: ${xmlText.length} chars`);
   console.log(`[TrackLens][BD] Raw XML (first 500):`, xmlText.slice(0, 500));
   return parseBluedartTrackingXml(awb, xmlText);
 }
@@ -5290,9 +5295,6 @@ function parseBluedartTrackingXml(awb, xmlText){
     const parser = new DOMParser();
     const doc = parser.parseFromString(xmlText, 'text/xml');
 
-    // Bluedart returns errors two ways:
-    //   1. <IsError>true</IsError> (older API)
-    //   2. <Error>message</Error> inside <ShipmentData> (observed in practice)
     const isErrorFlag = doc.querySelector('IsError')?.textContent?.trim() === 'true';
     const errorTag = doc.querySelector('ShipmentData > Error, Error')?.textContent?.trim() || '';
     if(isErrorFlag || errorTag){
@@ -5317,10 +5319,9 @@ function parseBluedartTrackingXml(awb, xmlText){
       });
     });
 
-    console.log(`[TrackLens][BD] Parsed AWB ${awb}: statusCode="${statusCode}" statusDesc="${statusDesc}" events=${events.length}`);
+    console.log(`[TrackLens][BD] Parsed AWB ${awb}: code="${statusCode}" desc="${statusDesc}" events=${events.length}`);
     if(events.length > 0) console.log(`[TrackLens][BD] Most recent scan:`, events[0]);
 
-    // Top-level status fields are often empty — fall back to most recent scan event
     let effectiveCode = statusCode;
     let effectiveDesc = statusDesc;
     if(!effectiveCode && !effectiveDesc && events.length > 0){
@@ -5336,7 +5337,7 @@ function parseBluedartTrackingXml(awb, xmlText){
 
     const tlStatus = mapBluedartStatus(effectiveCode, effectiveDesc);
     const lastEvent = effectiveDesc || 'No updates';
-    console.log(`[TrackLens][BD] Final mapped: "${effectiveDesc}" → "${tlStatus}"`);
+    console.log(`[TrackLens][BD] Final: "${effectiveDesc}" → "${tlStatus}"`);
     return { awb, isError: false, status: tlStatus, statusCode: effectiveCode, statusDesc: effectiveDesc, statusDate, statusTime, lastEvent, events };
   } catch(err){
     return { awb, isError: true, errorMsg: 'XML parse failed: ' + err.message, status: 'error', events: [] };
@@ -6536,11 +6537,14 @@ function bindSettings(){
     // Save key first if typed
     const keyInput = $('#cred-bd-licenceKey');
     if(keyInput?.value?.trim()) State.settings.bluedart.licenceKey = keyInput.value.trim();
-    // Also save password if typed
-    const pwdInput = $('#cred-bd-password');
-    if(pwdInput?.value?.trim()) State.settings.bluedart.password = pwdInput.value.trim();
-    if(!State.settings.bluedart.licenceKey || !State.settings.bluedart.password){
-      $('#bdAuthResult').textContent = '✗ Enter both licence key and password first';
+    const pwdInput2 = $('#cred-bd-password');
+    if(pwdInput2?.value?.trim()) State.settings.bluedart.password = pwdInput2.value.trim();
+    const loginIdInput = $('#cred-bd-loginId');
+    if(loginIdInput?.value?.trim()) State.settings.bluedart.loginId = loginIdInput.value.trim();
+    const ccInput = $('#cred-bd-customerCode');
+    if(ccInput?.value?.trim()) State.settings.bluedart.customerCode = ccInput.value.trim();
+    if(!State.settings.bluedart.loginId || !State.settings.bluedart.licenceKey || !State.settings.bluedart.password){
+      $('#bdAuthResult').textContent = '✗ Enter Login ID, Licence Key and Password first';
       $('#bdAuthResult').style.color = 'var(--red)';
       return;
     }
@@ -6579,10 +6583,14 @@ function saveSettingsSection(section){
     State.settings.shiprocket.password = $('#cred-sr-password').value || State.settings.shiprocket.password;
     State.settings.delhivery.token = $('#cred-dl-token').value || State.settings.delhivery.token;
     // v1.2: Bluedart uses licenceKey (note spelling — matches Bluedart API)
-    const bdKey = $('#cred-bd-licenceKey')?.value?.trim();
-    if(bdKey) State.settings.bluedart.licenceKey = bdKey;
+    const bdLoginId = $('#cred-bd-loginId')?.value?.trim();
+    if(bdLoginId) State.settings.bluedart.loginId = bdLoginId;
     const bdPwd = $('#cred-bd-password')?.value?.trim();
     if(bdPwd) State.settings.bluedart.password = bdPwd;
+    const bdKey = $('#cred-bd-licenceKey')?.value?.trim();
+    if(bdKey) State.settings.bluedart.licenceKey = bdKey;
+    const bdCC = $('#cred-bd-customerCode')?.value?.trim();
+    if(bdCC) State.settings.bluedart.customerCode = bdCC;
   }
   if(section === 'messaging'){
     State.settings.interakt.apiKey = $('#cred-it-key').value || State.settings.interakt.apiKey;
@@ -6631,8 +6639,10 @@ function applySettingsToInputs(){
     ['cred-sr-email', State.settings.shiprocket.email, false],
     ['cred-sr-password', State.settings.shiprocket.password, true],
     ['cred-dl-token', State.settings.delhivery.token, true],
-    ['cred-bd-licenceKey', State.settings.bluedart?.licenceKey, true],
+    ['cred-bd-loginId',    State.settings.bluedart?.loginId,    false],
     ['cred-bd-password',   State.settings.bluedart?.password,    true],
+    ['cred-bd-licenceKey', State.settings.bluedart?.licenceKey,  true],
+    ['cred-bd-customerCode', State.settings.bluedart?.customerCode, false],
     ['cred-it-key', State.settings.interakt.apiKey, true],
     ['cred-ops-phones', State.settings.alerts.opsPhones, false],
     ['cred-ops-email', State.settings.alerts.opsEmail, false],
@@ -7399,11 +7409,11 @@ async function runSingleAwbTest(){
     }
     sep();
     if(courier === 'bluedart'){
-      if(!State.settings.bluedart?.licenceKey || !State.settings.bluedart?.password){
-        log('✗ Bluedart licence key and password required — Settings → Courier APIs', '#b03030'); return;
+      const creds = getBluedartCreds();
+      if(!creds.loginId || !creds.licenceKey || !creds.password){
+        log('✗ Missing BD credentials — set Login ID, Password and Licence Key in Settings → Courier APIs', '#b03030'); return;
       }
       log('Calling Bluedart API (scan=1)…', '#8a8a87');
-      const creds = getBluedartCreds();
       const base = getProxyBase();
       const params = new URLSearchParams({
         handler:'tnt', action:'custawbquery', loginid:creds.loginId,
