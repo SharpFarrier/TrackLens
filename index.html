@@ -1801,19 +1801,15 @@
 
           <!-- Bluedart -->
           <div class="field-group">
-            <label>Bluedart — Login ID <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from Shypassist → Settings → Bluedart → Client field)</span></label>
-            <input type="text" class="mono" id="cred-bd-loginId" placeholder="e.g. BOM41184 or logistics@klick-ventures.com" autocomplete="off" />
+            <label>Bluedart — Login ID <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(Client field in Shypassist → Settings → Bluedart)</span></label>
+            <input type="text" class="mono" id="cred-bd-loginId" placeholder="e.g. BOM41184" autocomplete="off" />
           </div>
           <div class="field-group">
-            <label>Bluedart — API Password <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from Shypassist → Settings → Bluedart → Password field)</span></label>
-            <input type="password" class="mono" id="cred-bd-password" placeholder="Bluedart API password" autocomplete="off" />
+            <label>Bluedart — JWT Token <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(Token field in Shypassist → Settings → Bluedart — sent as JWTToken header)</span></label>
+            <input type="password" class="mono" id="cred-bd-licenceKey" placeholder="JWT token from Shypassist" autocomplete="off" />
           </div>
           <div class="field-group">
-            <label>Bluedart — Licence Key <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(Token field in Shypassist)</span></label>
-            <input type="password" class="mono" id="cred-bd-licenceKey" placeholder="32-character licence key" autocomplete="off" />
-          </div>
-          <div class="field-group">
-            <label>Bluedart — Customer Code <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from Shypassist → Settings → Bluedart → Customer Code field)</span></label>
+            <label>Bluedart — Customer Code <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(Customer Code field in Shypassist → Settings → Bluedart)</span></label>
             <input type="text" class="mono" id="cred-bd-customerCode" placeholder="e.g. BOM485892" autocomplete="off" />
             <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
               <button class="btn ghost sm" id="testBluedartBtn">Test Bluedart tracking</button>
@@ -2716,8 +2712,7 @@ function restoreLocal(){
   if(!State.settings.involens) State.settings.involens = { dataFolderId: '', invoicesFolderId: '', lastFetchedAt: null, lastModifiedTime: null };
   if(typeof State.settings.involens.dataFolderId !== 'string') State.settings.involens.dataFolderId = '';
   if(!State.settings.proxy) State.settings.proxy = { url: '' };
-  if(!State.settings.bluedart) State.settings.bluedart = { loginId: '', licenceKey: '', password: '', customerCode: '' };
-  if(State.settings.bluedart.password === undefined) State.settings.bluedart.password = '';
+  if(!State.settings.bluedart) State.settings.bluedart = { loginId: '', licenceKey: '', customerCode: '' };
   if(!State.settings.transitOverrides || typeof State.settings.transitOverrides !== 'object') State.settings.transitOverrides = {};
   if(!State.settings.pincodeTransitOverrides || typeof State.settings.pincodeTransitOverrides !== 'object') State.settings.pincodeTransitOverrides = {};
   if(typeof State.settings.transitBufferDays !== 'number' || State.settings.transitBufferDays < 0) State.settings.transitBufferDays = 0;
@@ -5227,8 +5222,7 @@ function getBluedartCreds(){
   const bd = State.settings.bluedart || {};
   return {
     loginId:      bd.loginId      || '',
-    licenceKey:   bd.licenceKey   || '',
-    password:     bd.password     || '',
+    licenceKey:   bd.licenceKey   || '',   // this is the JWTToken for apigateway
     customerCode: bd.customerCode || ''
   };
 }
@@ -5242,12 +5236,10 @@ async function bluedartTrackAwb(awb){
 
   const base = getProxyBase();
   // Route through proxy: Worker forwards /bluedart/* to api.bluedart.com
-  if(!creds.password) throw new Error('Bluedart API password not configured — Settings → Courier APIs');
   const params = new URLSearchParams({
     handler:  'tnt',
     action:   'custawbquery',
     loginid:  creds.loginId,
-    pwd:      creds.password,
     awb:      'awb',
     numbers:  String(awb).trim(),
     format:   'xml',
@@ -5255,10 +5247,14 @@ async function bluedartTrackAwb(awb){
     verno:    '1.3',
     scan:     '1'
   });
-  const url = `${base}/bluedart/servlet/RoutingServlet?${params}`;
-  console.log(`[TrackLens][BD] Tracking AWB ${awb}`);
+  // API gateway endpoint — replaces legacy api.bluedart.com/servlet/RoutingServlet
+  // Auth: JWTToken header (the token from Shypassist settings)
+  const url = `${base}/bluedart/in/transportation/tracking/v1?${params}`;
+  console.log(`[TrackLens][BD] Tracking AWB ${awb} via apigateway`);
 
-  const resp = await fetch(url);
+  const resp = await fetch(url, {
+    headers: { 'JWTToken': creds.licenceKey }
+  });
   if(!resp.ok) throw new Error(`Bluedart API HTTP ${resp.status}`);
 
   const xmlText = await resp.text();
@@ -6537,14 +6533,12 @@ function bindSettings(){
     // Save key first if typed
     const keyInput = $('#cred-bd-licenceKey');
     if(keyInput?.value?.trim()) State.settings.bluedart.licenceKey = keyInput.value.trim();
-    const pwdInput2 = $('#cred-bd-password');
-    if(pwdInput2?.value?.trim()) State.settings.bluedart.password = pwdInput2.value.trim();
-    const loginIdInput = $('#cred-bd-loginId');
-    if(loginIdInput?.value?.trim()) State.settings.bluedart.loginId = loginIdInput.value.trim();
-    const ccInput = $('#cred-bd-customerCode');
-    if(ccInput?.value?.trim()) State.settings.bluedart.customerCode = ccInput.value.trim();
-    if(!State.settings.bluedart.loginId || !State.settings.bluedart.licenceKey || !State.settings.bluedart.password){
-      $('#bdAuthResult').textContent = '✗ Enter Login ID, Licence Key and Password first';
+    const loginIdInput2 = $('#cred-bd-loginId');
+    if(loginIdInput2?.value?.trim()) State.settings.bluedart.loginId = loginIdInput2.value.trim();
+    const ccInput2 = $('#cred-bd-customerCode');
+    if(ccInput2?.value?.trim()) State.settings.bluedart.customerCode = ccInput2.value.trim();
+    if(!State.settings.bluedart.loginId || !State.settings.bluedart.licenceKey){
+      $('#bdAuthResult').textContent = '✗ Enter Login ID and JWT Token first';
       $('#bdAuthResult').style.color = 'var(--red)';
       return;
     }
@@ -6585,8 +6579,6 @@ function saveSettingsSection(section){
     // v1.2: Bluedart uses licenceKey (note spelling — matches Bluedart API)
     const bdLoginId = $('#cred-bd-loginId')?.value?.trim();
     if(bdLoginId) State.settings.bluedart.loginId = bdLoginId;
-    const bdPwd = $('#cred-bd-password')?.value?.trim();
-    if(bdPwd) State.settings.bluedart.password = bdPwd;
     const bdKey = $('#cred-bd-licenceKey')?.value?.trim();
     if(bdKey) State.settings.bluedart.licenceKey = bdKey;
     const bdCC = $('#cred-bd-customerCode')?.value?.trim();
@@ -6639,9 +6631,8 @@ function applySettingsToInputs(){
     ['cred-sr-email', State.settings.shiprocket.email, false],
     ['cred-sr-password', State.settings.shiprocket.password, true],
     ['cred-dl-token', State.settings.delhivery.token, true],
-    ['cred-bd-loginId',    State.settings.bluedart?.loginId,    false],
-    ['cred-bd-password',   State.settings.bluedart?.password,    true],
-    ['cred-bd-licenceKey', State.settings.bluedart?.licenceKey,  true],
+    ['cred-bd-loginId',      State.settings.bluedart?.loginId,    false],
+    ['cred-bd-licenceKey',   State.settings.bluedart?.licenceKey,  true],
     ['cred-bd-customerCode', State.settings.bluedart?.customerCode, false],
     ['cred-it-key', State.settings.interakt.apiKey, true],
     ['cred-ops-phones', State.settings.alerts.opsPhones, false],
@@ -7410,21 +7401,21 @@ async function runSingleAwbTest(){
     sep();
     if(courier === 'bluedart'){
       const creds = getBluedartCreds();
-      if(!creds.loginId || !creds.licenceKey || !creds.password){
-        log('✗ Missing BD credentials — set Login ID, Password and Licence Key in Settings → Courier APIs', '#b03030'); return;
+      if(!creds.loginId || !creds.licenceKey){
+        log('✗ Missing BD credentials — set Login ID and JWT Token in Settings → Courier APIs', '#b03030'); return;
       }
-      log('Calling Bluedart API (scan=1)…', '#8a8a87');
+      log('Calling Bluedart API gateway (scan=1)…', '#8a8a87');
       const base = getProxyBase();
       const params = new URLSearchParams({
         handler:'tnt', action:'custawbquery', loginid:creds.loginId,
-        pwd:creds.password, awb:'awb', numbers:awb, format:'xml',
-        lickey:creds.licenceKey, verno:'1.3', scan:'1'
+        awb:'awb', numbers:awb, format:'xml', lickey:creds.licenceKey, verno:'1.3', scan:'1'
       });
       log('loginId: ' + creds.loginId);
-      log('licenceKey: ' + (creds.licenceKey ? creds.licenceKey.slice(0,6)+'…'+creds.licenceKey.slice(-4) : '(not set)'));
-      log('password: ' + (creds.password ? '•••••• (set)' : '(not set)'));
+      log('JWT Token: ' + (creds.licenceKey ? creds.licenceKey.slice(0,6)+'…'+creds.licenceKey.slice(-4) : '(not set)'));
       sep();
-      const rawResp = await fetch(base + '/bluedart/servlet/RoutingServlet?' + params);
+      const rawResp = await fetch(base + '/bluedart/in/transportation/tracking/v1?' + params, {
+        headers: { 'JWTToken': creds.licenceKey }
+      });
       const rawXml = await rawResp.text();
       log('HTTP status: ' + rawResp.status);
       log('Content-Type: ' + (rawResp.headers.get('content-type') || '(none)'));
