@@ -5302,14 +5302,18 @@ function parseBluedartTrackingXml(awb, xmlText){
 function mapBluedartStatus(code, desc){
   const d = (desc || '').toLowerCase();
   const c = (code || '').toUpperCase();
-  if(c === 'DL' || d.includes('delivered'))                    return 'delivered';
-  if(c === 'OD' || d.includes('out for delivery'))             return 'out_for_delivery';
-  if(c === 'TR' || d.includes('in transit'))                   return 'in_transit';
+  if(c === 'DL' || d.includes('delivered'))                                    return 'delivered';
+  if(c === 'OD' || d.includes('out for delivery'))                             return 'out_for_delivery';
+  if(c === 'TR' || d.includes('in transit'))                                   return 'in_transit';
+  // 'PU' / 'picked up' / 'shipment picked' = courier physically collected
   if(c === 'PU' || d.includes('picked up') || d.includes('shipment picked'))  return 'picked_up';
-  if(c === 'ND' || d.includes('undelivered') || d.includes('ndr'))  return 'ndr';
-  if(c === 'RTO' || d.includes('rto') || d.includes('return')) return 'rto';
-  if(d.includes('booked') || d.includes('manifested'))         return 'booked';
-  return 'in_transit'; // default
+  // Pickup employee is en route but has NOT collected yet — treat as packed, not shipped
+  if(d.includes('out to p/u') || d.includes('out for pickup') || d.includes('employee is out'))  return 'pickup_enroute';
+  if(c === 'ND' || d.includes('undelivered') || d.includes('ndr'))            return 'ndr';
+  if(c === 'RTO' || d.includes('rto') || d.includes('return'))                return 'rto';
+  if(d.includes('booked') || d.includes('manifested'))                        return 'booked';
+  // Unknown status — return null so we never silently advance an order
+  return null;
 }
 
 /* Fetch tracking for multiple Bluedart AWBs (sequential, rate-limit safe). */
@@ -5346,13 +5350,22 @@ function applyBluedartTrackingResults(results){
       lastEvent: r.lastEvent,
       events: r.events
     };
-    // Auto-advance status if courier confirms delivery/pickup
-    const bdToTl = { in_transit:'shipped', picked_up:'shipped', out_for_delivery:'shipped', booked:'shipped', delivered:'delivered', ndr:'ndr', rto:'rto' };
-    const tlStatus = bdToTl[r.status] || 'shipped';
+    // Auto-advance status only on confirmed physical events.
+    // pickup_enroute / booked / null = no advancement — courier has not collected yet.
+    const bdToTl = {
+      'picked_up':         'shipped',   // courier scanned at pickup — confirmed collected
+      'in_transit':        'shipped',   // en route to destination
+      'out_for_delivery':  'shipped',   // on the delivery van
+      'delivered':         'delivered',
+      'ndr':               'ndr',
+      'rto':               'rto'
+      // pickup_enroute, booked, null → intentionally absent → no advancement
+    };
+    const tlStatus = bdToTl[r.status] || null;
     if(tlStatus === 'delivered' && inv.status === 'shipped'){
       try { setOrderStatus(inv.id, 'delivered', { by: 'auto', reason: 'Bluedart confirmed delivery', force: true }); } catch(e){}
     }
-    if((tlStatus === 'shipped') && ['packed','dispatching','inbox','planned'].includes(inv.status)){
+    if(tlStatus === 'shipped' && ['packed','dispatching','inbox','planned'].includes(inv.status)){
       try { setOrderStatus(inv.id, 'shipped', { by: 'auto', reason: 'Bluedart confirmed pickup', force: true }); } catch(e){}
     }
     updated++;
@@ -6767,12 +6780,22 @@ async function runTrackingSync(onProgress){
   // Rollback: fix orders incorrectly advanced to 'shipped' via ready_to_ship in previous syncs
   let rolledBack = 0;
   State.invoices.forEach(r => {
+    // Cargo: rollback orders advanced via pre-pickup statuses
     if(r.status === 'shipped' &&
        r.lastTracking?.source === 'cargo' &&
        ['ready_to_ship', 'pickup_scheduled', 'pickup_generated'].includes(r.lastTracking?.statusLabel)){
       r.status = 'packed';
       if(!r.statusHistory) r.statusHistory = [];
       r.statusHistory.push({ from:'shipped', to:'packed', at: new Date().toISOString(), by:'auto', reason:'rollback: label generated / pickup requested — not yet physically collected' });
+      rolledBack++;
+    }
+    // Bluedart: rollback orders advanced via pickup_enroute (employee out but not collected)
+    if(r.status === 'shipped' &&
+       r.lastTracking?.source === 'bluedart' &&
+       r.lastTracking?.statusLabel && r.lastTracking.statusLabel.toLowerCase().includes('out to p/u')){
+      r.status = 'packed';
+      if(!r.statusHistory) r.statusHistory = [];
+      r.statusHistory.push({ from:'shipped', to:'packed', at: new Date().toISOString(), by:'auto', reason:'rollback: pickup employee en route — not yet physically collected' });
       rolledBack++;
     }
   });
@@ -6877,10 +6900,15 @@ async function runTrackingSync(onProgress){
         const inv = State.invoices.find(x => x.awb && String(x.awb).trim() === String(awb).trim());
         if(inv && !inv.courier){ inv.courier = 'bluedart'; bdTagged++; }
         const bdToTl = {
-          'in_transit':'shipped','picked_up':'shipped','out_for_delivery':'shipped',
-          'booked':'shipped','delivered':'delivered','ndr':'ndr','rto':'rto'
+          'picked_up':        'shipped',
+          'in_transit':       'shipped',
+          'out_for_delivery': 'shipped',
+          'delivered':        'delivered',
+          'ndr':              'ndr',
+          'rto':              'rto'
+          // pickup_enroute, booked, null → no advancement
         };
-        const tlStatus = bdToTl[r.status] || 'shipped';
+        const tlStatus = bdToTl[r.status] || null;
         report.results[awb] = { status: tlStatus, source: 'bluedart', statusLabel: r.statusDesc || r.lastEvent || r.status };
         report.bdChecked++;
       } else {
