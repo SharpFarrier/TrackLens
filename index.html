@@ -2044,7 +2044,7 @@
 
           <div style="margin-top:20px;padding:16px;background:#fff;border:1.5px solid var(--line);border-radius:10px">
             <div style="font-weight:600;font-size:13px;margin-bottom:4px">&#x1F52C; Test single AWB</div>
-            <div style="font-size:11.5px;color:var(--ink-3);margin-bottom:12px">Tracks one AWB, shows raw courier response and previews what status change would fire — without touching any order data. Check browser console for raw XML.</div>
+            <div style="font-size:11.5px;color:var(--ink-3);margin-bottom:12px">Tracks one AWB, shows raw courier response and previews what status change would fire — without touching any order data.</div>
             <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
               <input type="text" id="testAwbInput" placeholder="e.g. 50938467392" style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);background:#fff;width:220px" />
               <select id="testAwbCourier" style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:inherit;font-size:13px;color:var(--ink);background:#fff">
@@ -5248,8 +5248,8 @@ async function bluedartTrackAwb(awb){
 
   const xmlText = await resp.text();
   const ct = resp.headers.get('content-type') || '';
-  console.log(`[TrackLens][BD] AWB ${awb} response: ${xmlText.length} chars, content-type: ${ct}`);
-  console.log(`[TrackLens][BD] Raw XML (first 800):`, xmlText.slice(0, 800));
+  console.log(`[TrackLens][BD] AWB ${awb}: ${xmlText.length} chars, ${ct}`);
+  console.log(`[TrackLens][BD] Raw XML (first 500):`, xmlText.slice(0, 500));
   return parseBluedartTrackingXml(awb, xmlText);
 }
 
@@ -5281,14 +5281,19 @@ function parseBluedartTrackingXml(awb, xmlText){
     const parser = new DOMParser();
     const doc = parser.parseFromString(xmlText, 'text/xml');
 
-    // Check for error
-    const isError = doc.querySelector('IsError')?.textContent?.trim() === 'true';
-    if(isError){
-      const errorMsg = doc.querySelector('ErrorMessage')?.textContent?.trim() || 'Unknown error';
+    // Bluedart returns errors two ways:
+    //   1. <IsError>true</IsError> with <ErrorMessage> (older API versions)
+    //   2. <Error>message</Error> inside <ShipmentData> (actual observed behaviour)
+    // Check both.
+    const isErrorFlag = doc.querySelector('IsError')?.textContent?.trim() === 'true';
+    const errorTag = doc.querySelector('ShipmentData > Error, Error')?.textContent?.trim() || '';
+    if(isErrorFlag || errorTag){
+      const errorMsg = doc.querySelector('ErrorMessage')?.textContent?.trim() || errorTag || 'Unknown error';
+      console.warn(`[TrackLens][BD] AWB ${awb} API error: ${errorMsg}`);
       return { awb, isError: true, errorMsg, status: 'error', events: [] };
     }
 
-    // Current status
+    // Current status (top-level — often empty even for active shipments)
     const statusCode = doc.querySelector('StatusCode')?.textContent?.trim() || '';
     const statusDesc = doc.querySelector('StatusDescription')?.textContent?.trim() || '';
     const statusDate = doc.querySelector('StatusDate')?.textContent?.trim() || '';
@@ -5306,11 +5311,10 @@ function parseBluedartTrackingXml(awb, xmlText){
       });
     });
 
-    console.log(`[TrackLens][BD] Parsed: statusCode="${statusCode}" statusDesc="${statusDesc}" events=${events.length}`);
+    console.log(`[TrackLens][BD] Parsed AWB ${awb}: statusCode="${statusCode}" statusDesc="${statusDesc}" events=${events.length}`);
     if(events.length > 0) console.log(`[TrackLens][BD] Most recent scan:`, events[0]);
 
-    // Top-level StatusCode/StatusDescription are often empty even for active shipments.
-    // Fall back to most recent scan event when they're blank.
+    // Top-level status fields are often empty. Fall back to most recent scan event.
     let effectiveCode = statusCode;
     let effectiveDesc = statusDesc;
     if(!effectiveCode && !effectiveDesc && events.length > 0){
@@ -5319,6 +5323,7 @@ function parseBluedartTrackingXml(awb, xmlText){
       console.log(`[TrackLens][BD] Using scan fallback: code="${effectiveCode}" desc="${effectiveDesc}"`);
     }
 
+    // Nothing at all — shipment not yet scanned
     if(!effectiveCode && !effectiveDesc && events.length === 0){
       return { awb, isError: false, status: 'not_yet_scanned', statusCode: '', statusDesc: '',
                lastEvent: 'Not yet scanned by Bluedart', events: [] };
@@ -5326,7 +5331,7 @@ function parseBluedartTrackingXml(awb, xmlText){
 
     const tlStatus = mapBluedartStatus(effectiveCode, effectiveDesc);
     const lastEvent = effectiveDesc || 'No updates';
-    console.log(`[TrackLens][BD] Final: effectiveDesc="${effectiveDesc}" mapped="${tlStatus}"`);
+    console.log(`[TrackLens][BD] Final mapped: "${effectiveDesc}" → "${tlStatus}"`);
     return { awb, isError: false, status: tlStatus, statusCode: effectiveCode, statusDesc: effectiveDesc, statusDate, statusTime, lastEvent, events };
   } catch(err){
     return { awb, isError: true, errorMsg: 'XML parse failed: ' + err.message, status: 'error', events: [] };
@@ -5350,7 +5355,7 @@ function mapBluedartStatus(code, desc){
   if(c === 'ND' || d.includes('undelivered') || d.includes('ndr'))   return 'ndr';
   if(c === 'RTO' || d.includes('rto') || d.includes('return'))       return 'rto';
   if(d.includes('booked') || d.includes('manifested'))               return 'booked';
-  return null;
+  return null; // unknown — never silently advance
 }
 
 /* Fetch tracking for multiple Bluedart AWBs (sequential, rate-limit safe). */
@@ -6829,7 +6834,7 @@ async function runTrackingSync(onProgress){
     }
     if(r.status === 'shipped' &&
        r.lastTracking?.source === 'bluedart' &&
-       ['not_yet_scanned', 'pickup_enroute', null, undefined, ''].includes(r.lastTracking?.status)){
+       ['not_yet_scanned', 'pickup_enroute', 'error', null, undefined, ''].includes(r.lastTracking?.status)){
       r.status = 'packed';
       if(!r.statusHistory) r.statusHistory = [];
       r.statusHistory.push({ from:'shipped', to:'packed', at: new Date().toISOString(), by:'auto', reason:'rollback: no confirmed pickup scan from Bluedart' });
@@ -7383,35 +7388,29 @@ async function runSingleAwbTest(){
     }
     sep();
     if(courier === 'bluedart'){
-      if(!State.settings.bluedart?.licenceKey){ log('✗ Bluedart licence key not set', '#b03030'); return; }
+      if(!State.settings.bluedart?.licenceKey){ log('✗ Bluedart licence key not set — Settings → Courier APIs', '#b03030'); return; }
       log('Calling Bluedart API (scan=1)…', '#8a8a87');
-
-      // Fetch raw XML directly so we can show it
       const creds = getBluedartCreds();
       const base = getProxyBase();
       const params = new URLSearchParams({
         handler:'tnt', action:'custawbquery', loginid:creds.loginId,
         awb:'awb', numbers:awb, format:'xml', lickey:creds.licenceKey, verno:'1.3', scan:'1'
       });
+      log('loginId: ' + creds.loginId);
+      log('licenceKey: ' + (creds.licenceKey ? creds.licenceKey.slice(0,6) + '…' + creds.licenceKey.slice(-4) : '(not set)'));
+      sep();
       const rawResp = await fetch(base + '/bluedart/servlet/RoutingServlet?' + params);
       const rawXml = await rawResp.text();
-      const ct = rawResp.headers.get('content-type') || '(none)';
-
       log('HTTP status: ' + rawResp.status);
-      log('Content-Type: ' + ct);
+      log('Content-Type: ' + (rawResp.headers.get('content-type') || '(none)'));
       log('Response length: ' + rawXml.length + ' chars');
       sep();
-
-      // Show first 600 chars of raw XML
       log('Raw XML (first 600):');
-      const xmlPreview = rawXml.slice(0, 600).replace(/</g, '<');
-      log(xmlPreview, '#4a4a48');
+      log(rawXml.slice(0, 600).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'), '#4a4a48');
       sep();
-
-      // Now parse it
       const result = parseBluedartTrackingXml(awb, rawXml);
-      log('isError: ' + result.isError);
-      if(result.isError){ log('errorMsg: ' + result.errorMsg, '#b03030'); return; }
+      log('isError: ' + result.isError + (result.isError ? ' — ' + result.errorMsg : ''), result.isError ? '#b03030' : 'var(--ink)');
+      if(result.isError) return;
       log('statusCode: "' + result.statusCode + '"');
       log('statusDesc: "' + result.statusDesc + '"');
       log('lastEvent:  "' + result.lastEvent + '"');
@@ -7430,13 +7429,10 @@ async function runSingleAwbTest(){
         log('Advancement: NONE — "' + (result.status||'null') + '" does not advance order', '#b87a1f');
       } else if(matchedOrder){
         const cur = matchedOrder.status || 'inbox';
-        const advanceable = tlStatus === 'shipped' ? ['packed','dispatching','inbox','planned'].includes(cur)
-                          : tlStatus === 'delivered' ? cur === 'shipped' : true;
+        const advanceable = tlStatus==='shipped' ? ['packed','dispatching','inbox','planned'].includes(cur) : tlStatus==='delivered' ? cur==='shipped' : true;
         if(advanceable){ log('Would advance: ' + cur + ' → ' + tlStatus + ' ✓', '#3d7a3d'); }
-        else { log('No advancement: current="' + cur + '" already at or past "' + tlStatus + '"', '#b87a1f'); }
-      } else {
-        log('Would set: ' + tlStatus + ' (no matching order to advance)');
-      }
+        else { log('No advancement: already at or past "' + tlStatus + '"', '#b87a1f'); }
+      } else { log('Would set: ' + tlStatus + ' (no matching order)'); }
     } else if(courier === 'cargo'){
       if(!State.settings.cargo?.token){ log('✗ Cargo token not set', '#b03030'); return; }
       log('Looking up AWB in Cargo…', '#8a8a87');
