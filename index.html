@@ -6149,63 +6149,65 @@ async function assembleInvoicesPdf(rows){
     return m.bytes;
   }
 
-  // Auto-fetch path
-  // Folder ID is only required if we need to do filename lookup. If every row has
-  // pdf_drive_id in the JSON, we can skip folder configuration entirely.
-  const allHaveDriveId = rows.every(r => r.invoicePdf?.drive_id);
+  // Try Drive first — if all rows have Drive IDs and Drive is connected, use them.
+  // Fall back to generating invoices locally for any that are missing.
   const folderId = State.settings.involens?.invoicesFolderId;
-  if(!allHaveDriveId && !folderId){
-    throw new Error('Some invoices need a folder lookup but no InvoLens folder configured. Settings → Drive Sync → InvoLens Invoices folder ID. Or upload merged invoice PDF manually.');
-  }
-  if(!State.drive.connected){
-    throw new Error('Drive not connected — cannot auto-fetch invoices. Connect Drive in Settings or use manual upload.');
-  }
+  const canUseDrive = State.drive.connected && (folderId || rows.every(r => r.invoicePdf?.drive_id));
 
-  // Build folder index once per batch (only if any rows lack a direct drive_id)
-  const rowsNeedFolderLookup = rows.some(r => !r.invoicePdf?.drive_id);
-  if(rowsNeedFolderLookup){
-    if(!_invoicesFolderIndex){
-      logBatch(`Indexing invoices folder…`);
-      _invoicesFolderIndex = await buildInvoicesFolderIndex(folderId);
-      logBatch(`✓ Found ${Object.keys(_invoicesFolderIndex.map).length} invoice PDFs in Drive folder`);
+  if(canUseDrive){
+    // Build folder index if needed
+    const rowsNeedFolderLookup = rows.some(r => !r.invoicePdf?.drive_id);
+    if(rowsNeedFolderLookup && folderId){
+      if(!_invoicesFolderIndex){
+        logBatch(`Indexing invoices folder…`);
+        _invoicesFolderIndex = await buildInvoicesFolderIndex(folderId);
+        logBatch(`✓ Found ${Object.keys(_invoicesFolderIndex.map).length} invoice PDFs in Drive folder`);
+      }
     }
-  }
 
-  // Resolve each row's invoice file
-  const resolved = rows.map(r => {
-    const driveId = resolveInvoiceDriveId(r, _invoicesFolderIndex);
-    const source = r.invoicePdf?.drive_id ? 'json'
-                 : (driveId ? 'folder-lookup' : 'missing');
-    return { row: r, driveId, source };
-  });
+    const resolved = rows.map(r => {
+      const driveId = resolveInvoiceDriveId(r, _invoicesFolderIndex);
+      return { row: r, driveId, source: r.invoicePdf?.drive_id ? 'json' : (driveId ? 'folder' : 'generate') };
+    });
 
-  const fromJson = resolved.filter(x => x.source === 'json').length;
-  const fromFolder = resolved.filter(x => x.source === 'folder-lookup').length;
-  const missingResolved = resolved.filter(x => !x.driveId);
+    const fromDrive    = resolved.filter(x => x.source !== 'generate');
+    const toGenerate   = resolved.filter(x => x.source === 'generate');
 
-  if(fromJson > 0 || fromFolder > 0){
-    logBatch(`Invoice resolution — ${fromJson} from JSON, ${fromFolder} via folder lookup, ${missingResolved.length} missing`);
-  }
+    logBatch(`Invoices — Drive: ${fromDrive.length}, generating locally: ${toGenerate.length}`);
 
-  if(missingResolved.length > 0){
-    const missingIds = missingResolved.slice(0, 5).map(x => x.row.orderId).join(', ');
-    const more = missingResolved.length > 5 ? ` (+${missingResolved.length - 5} more)` : '';
-    throw new Error(`${missingResolved.length}/${rows.length} invoices not found. Missing: ${missingIds}${more}. Upload merged invoice PDF manually instead.`);
-  }
-
-  // Fetch and merge in row order
-  logBatch(`Fetching ${resolved.length} invoice PDFs from Drive…`);
-  const invoiceBytes = [];
-  for(let i = 0; i < resolved.length; i++){
-    const { row, driveId } = resolved[i];
-    try{
-      const bytes = await fetchDriveFileBytes(driveId);
-      invoiceBytes.push(bytes);
-    } catch(err){
-      throw new Error(`Failed to fetch invoice for ${row.orderId}: ${err.message}`);
+    const invoiceBytes = [];
+    for(const { row, driveId, source } of resolved){
+      if(source !== 'generate'){
+        try{
+          const bytes = await fetchDriveFileBytes(driveId);
+          invoiceBytes.push(bytes);
+          continue;
+        } catch(err){
+          logBatch(`⚠ Drive fetch failed for ${row.orderId}, generating locally`, 'warn');
+        }
+      }
+      // Generate locally
+      try{
+        const bytes = await generateInvoicePdf(row);
+        invoiceBytes.push(bytes);
+        logBatch(`✓ Generated invoice for ${row.orderId}`);
+      } catch(err){
+        logBatch(`✗ Could not generate invoice for ${row.orderId}: ${err.message}`, 'error');
+      }
     }
+    if(invoiceBytes.length === 0) throw new Error('No invoices could be assembled');
+    return await mergePdfs(invoiceBytes);
   }
-  return await mergePdfs(invoiceBytes);
+
+  // Drive not available — generate all invoices locally
+  logBatch(`Drive not connected — generating all ${rows.length} invoices locally`);
+  try{
+    const bytes = await generateInvoicesPdf(rows);
+    logBatch(`✓ All invoices generated locally`);
+    return bytes;
+  } catch(err){
+    throw new Error('Invoice generation failed: ' + err.message);
+  }
 }
 
 /* Fetch a Drive file as raw bytes (not JSON). Uses gapi.client. */
@@ -7508,6 +7510,292 @@ async function runSingleAwbTest(){
     log('Error: ' + err.message, '#b03030');
     console.error('[TestAWB]', err);
   } finally { btn.disabled = false; }
+}
+
+/* ============================================================
+ * TrackLens Invoice Generator
+ * Replicates the InvoLens invoice format exactly.
+ * Uses pdf-lib (already loaded). Pure client-side, no server needed.
+ * Called during dispatch batch generation instead of fetching from Drive.
+ * ============================================================ */
+
+const SELLER = {
+  name:    'SABI WABI INNOVATIONS LLP',
+  brand:   'Honey Touch',
+  addr1:   'Hissa No 1 B, Survey No.72, Rayate,',
+  addr2:   'Kalyan-murbad Road, Thane,',
+  addr3:   'MAHARASHTRA, 421301',
+  gstin:   '27AFNFS2007K1ZR',
+  state:   'Maharashtra',
+  stateCode: '27'
+};
+
+/* Number to words (Indian system, for invoice amount-in-words) */
+function numberToWords(n){
+  const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine',
+                'Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen',
+                'Seventeen','Eighteen','Nineteen'];
+  const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  if(n === 0) return 'Zero';
+  function below1000(x){
+    if(x < 20) return ones[x];
+    if(x < 100) return tens[Math.floor(x/10)] + (x%10 ? ' ' + ones[x%10] : '');
+    return ones[Math.floor(x/100)] + ' Hundred' + (x%100 ? ' ' + below1000(x%100) : '');
+  }
+  let result = '';
+  const crore = Math.floor(n / 10000000); n %= 10000000;
+  const lakh  = Math.floor(n / 100000);   n %= 100000;
+  const thou  = Math.floor(n / 1000);     n %= 1000;
+  const rem   = n;
+  if(crore) result += below1000(crore) + ' Crore ';
+  if(lakh)  result += below1000(lakh)  + ' Lakh ';
+  if(thou)  result += below1000(thou)  + ' Thousand ';
+  if(rem)   result += below1000(rem);
+  return result.trim();
+}
+
+function fmtAmt(n){ return Number(n).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+/* Determine GST type: IGST if destination state ≠ Maharashtra, else CGST+SGST */
+function getGstType(destState){
+  const s = (destState || '').toLowerCase().trim();
+  return (s === 'maharashtra' || s === 'mh') ? 'cgst_sgst' : 'igst';
+}
+
+/* Generate a single invoice PDF as Uint8Array using pdf-lib.
+ * row = InvoLens order record (from State.invoices)
+ */
+async function generateInvoicePdf(row){
+  const { PDFDocument, rgb, degrees } = PDFLib;
+
+  // Colours from the InvoLens invoice
+  const GOLD   = rgb(0.780, 0.659, 0.361);  // #C7A85C header/accent
+  const DARK   = rgb(0.133, 0.133, 0.133);  // #222 body text
+  const MID    = rgb(0.400, 0.400, 0.400);  // #666 secondary
+  const LIGHT  = rgb(0.960, 0.949, 0.918);  // #F5F2EA bill-to bg
+  const WHITE  = rgb(1, 1, 1);
+  const BLACK  = rgb(0, 0, 0);
+  const TABLER = rgb(0.243, 0.302, 0.388);  // #3E4D63 table header bg
+
+  const doc  = await PDFDocument.create();
+  const page = doc.addPage([595.28, 841.89]); // A4
+  const { width, height } = page.getSize();
+  const H = height; // shorthand — pdf-lib Y is bottom-up
+
+  // Embed standard fonts
+  const fontB = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+  const fontR = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
+  const fontI = await doc.embedFont(PDFLib.StandardFonts.HelveticaOblique);
+
+  // Helper: draw text (y is from TOP, we convert)
+  const txt = (text, x, yFromTop, opts={}) => {
+    page.drawText(String(text), {
+      x, y: H - yFromTop,
+      size:  opts.size  || 8,
+      font:  opts.font  || fontR,
+      color: opts.color || DARK,
+      maxWidth: opts.maxWidth,
+      lineHeight: opts.lineHeight || 11,
+    });
+  };
+
+  // Helper: draw rect
+  const rect = (x, yFromTop, w, h2, opts={}) => {
+    page.drawRectangle({
+      x, y: H - yFromTop - h2,
+      width: w, height: h2,
+      color: opts.fill,
+      borderColor: opts.stroke,
+      borderWidth: opts.borderWidth || 0.5,
+      opacity: opts.opacity || 1,
+    });
+  };
+
+  // Helper: draw line
+  const line = (x1, y1, x2, y2, opts={}) => {
+    page.drawLine({
+      start: { x: x1, y: H - y1 },
+      end:   { x: x2, y: H - y2 },
+      thickness: opts.thickness || 0.5,
+      color: opts.color || MID,
+    });
+  };
+
+  // ── HEADER BAR (gold top strip) ──────────────────────────────────────
+  rect(0, 0, width, 8, { fill: GOLD, borderWidth: 0 });
+
+  // Brand name "Honey Touch" — large bold
+  txt('Honey', 38, 50, { size: 22, font: fontB, color: BLACK });
+  txt('Touch', 98, 50, { size: 22, font: fontI, color: GOLD });
+
+  // Seller details (right of brand)
+  txt(SELLER.name,  220, 42, { size: 7.5, font: fontB, color: DARK });
+  txt(SELLER.addr1, 220, 53, { size: 7,   color: MID });
+  txt(SELLER.addr2, 220, 62, { size: 7,   color: MID });
+  txt(SELLER.addr3, 220, 71, { size: 7,   color: MID });
+
+  // "INVOICE" large text top right
+  txt('INVOICE', 370, 60, { size: 28, font: fontB, color: TABLER });
+  // Gold underline under INVOICE
+  rect(370, 68, 180, 3, { fill: GOLD, borderWidth: 0 });
+
+  // Invoice meta box (right)
+  const metaX = 370, metaY = 80;
+  const metaRows = [
+    ['Invoice No.',   String(row.invoiceNo || row.id || '').replace('inv_imp_','')],
+    ['Invoice Date',  row.invoiceDate || new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})],
+    ['Seller GSTIN',  SELLER.gstin],
+    ['Place of Supply:', row.state || ''],
+  ];
+  metaRows.forEach(([label, val], i) => {
+    txt(label, metaX,     metaY + i*14, { size: 7.5, color: MID });
+    txt(':',   metaX+70,  metaY + i*14, { size: 7.5, color: MID });
+    txt(val,   metaX+78,  metaY + i*14, { size: 7.5, font: fontB, color: DARK });
+  });
+
+  // ── BILL TO SECTION ──────────────────────────────────────────────────
+  const btY = 155;
+  rect(38, btY, 260, 90, { fill: LIGHT, borderWidth: 0 });
+  // Small person icon circle
+  rect(50, btY+8, 18, 18, { fill: GOLD, borderWidth: 0 });
+  txt('BILL TO', 75, btY+14, { size: 7, font: fontB, color: GOLD });
+  txt(row.customerName || '', 75, btY+26, { size: 10, font: fontB, color: DARK });
+
+  // Address — split long address across lines
+  const addrLines = [];
+  const addr = row.raw?.consignee || {};
+  if(addr.address_line_1) addrLines.push(addr.address_line_1);
+  if(addr.address_line_2) addrLines.push(addr.address_line_2);
+  const cityState = [addr.city, addr.state, addr.pincode].filter(Boolean).join(' ');
+  if(cityState) addrLines.push(cityState);
+  addrLines.forEach((l, i) => txt(l, 75, btY+38+i*10, { size: 7.5, color: DARK, maxWidth: 215 }));
+  const contactY = btY + 38 + addrLines.length * 10 + 4;
+  txt('State: ' + (row.state||'') + '   Contact: ' + (row.customerPhone||''), 75, contactY, { size: 7, color: MID });
+
+  // Thank you cursive (right side of bill-to)
+  txt('Thank you for your business!', 310, btY+40, { size: 11, font: fontI, color: GOLD });
+
+  // ── ITEMS TABLE ──────────────────────────────────────────────────────
+  const tY = 255;
+  // Header row background
+  rect(38, tY, width-76, 18, { fill: TABLER, borderWidth: 0 });
+  const tHeaders = [
+    ['NO.',         45,  tY+12],
+    ['DESCRIPTION', 72,  tY+12],
+    ['QTY',        305,  tY+12],
+    ['UNIT PRICE', 350,  tY+12],
+    ['TAXABLE',    420,  tY+12],
+    ['AMOUNT',     490,  tY+12],
+  ];
+  tHeaders.forEach(([h, x, y]) => txt(h, x, y, { size: 7, font: fontB, color: WHITE }));
+
+  // Item rows
+  const lines = row.raw?.lines || [{ product_name: row.productName, sku: row.sku, qty: row.qty || 1, unit_price: row.amount, taxable: row.amount/1.18, hsn: '9403' }];
+  let rowY = tY + 18;
+  lines.forEach((item, idx) => {
+    const bgFill = idx % 2 === 0 ? WHITE : LIGHT;
+    const rh = 28;
+    rect(38, rowY, width-76, rh, { fill: bgFill, stroke: LIGHT, borderWidth: 0.3 });
+    txt(String(idx+1),                       45,  rowY+10, { size: 8, color: DARK });
+    txt(item.product_name || item.description || '', 72, rowY+9,  { size: 8, font: fontB, color: DARK, maxWidth: 220 });
+    txt('SKU ' + (item.sku||'') + '   HSN ' + (item.hsn||'9403'), 72, rowY+19, { size: 6.5, font: fontI, color: MID });
+    txt(String(item.qty || 1),               310, rowY+10, { size: 8, color: DARK });
+    txt(fmtAmt(item.unit_price || item.price || row.amount), 350, rowY+10, { size: 8, color: DARK });
+    txt(fmtAmt(item.taxable_amount || item.taxable || (row.amount/1.18)), 422, rowY+10, { size: 8, color: DARK });
+    txt(fmtAmt(item.amount || item.total || row.amount), 490, rowY+10, { size: 8, color: DARK });
+    rowY += rh;
+  });
+
+  // ── TOTALS + PAYMENT SECTION ─────────────────────────────────────────
+  const totY = rowY + 15;
+  const total     = Number(row.amount || 0);
+  const taxable   = total / 1.18;
+  const gstAmt    = total - taxable;
+  const gstType   = getGstType(row.state);
+
+  // Payment methods (left)
+  txt('PAYMENT METHODS', 50, totY+5, { size: 7, font: fontB, color: GOLD });
+  txt('100% advance before Dispatch', 50, totY+17, { size: 7, color: DARK });
+  txt('Bank Transfer    UPI    Credit / Debit Card', 50, totY+28, { size: 7, color: MID });
+
+  // Totals box (right)
+  const totX = 310;
+  const totRows = [
+    ['Taxable Value', fmtAmt(taxable)],
+    gstType === 'igst'
+      ? ['IGST', fmtAmt(gstAmt)]
+      : ['CGST', fmtAmt(gstAmt/2)],
+    gstType === 'cgst_sgst'
+      ? ['SGST', fmtAmt(gstAmt/2)]
+      : null,
+    ['Shipping', 'included'],
+  ].filter(Boolean);
+  totRows.forEach(([label, val], i) => {
+    txt(label, totX,     totY + i*14, { size: 8, color: DARK });
+    txt(val,   totX+155, totY + i*14, { size: 8, color: DARK, font: gstType === 'igst' && i===1 ? fontB : fontR });
+  });
+
+  // Total Due row (bold, gold bg)
+  const tdY = totY + totRows.length * 14 + 6;
+  rect(totX-5, tdY-3, 250, 18, { fill: LIGHT, borderWidth: 0 });
+  txt('TOTAL DUE', totX, tdY+10, { size: 9, font: fontB, color: TABLER });
+  txt('₹ ' + fmtAmt(total), totX+135, tdY+10, { size: 12, font: fontB, color: TABLER });
+
+  // ── AMOUNT IN WORDS ──────────────────────────────────────────────────
+  const awY = tdY + 30;
+  rect(38, awY, width-76, 28, { fill: LIGHT, borderWidth: 0 });
+  txt('AMOUNT IN WORDS', 45, awY+9, { size: 6.5, font: fontB, color: GOLD });
+  const wholePart = Math.round(total);
+  txt(numberToWords(wholePart) + ' Only', 45, awY+19, { size: 8, font: fontB, color: DARK });
+
+  // ── TRACKING ID ──────────────────────────────────────────────────────
+  const trY = awY + 38;
+  const awbValue = row.awb || '';
+  if(awbValue){
+    txt('TRACKING ID', 45, trY+8, { size: 6.5, font: fontB, color: GOLD });
+    txt(awbValue, 45, trY+18, { size: 9, font: fontB, color: DARK });
+  }
+
+  // ── SIGNATURE BLOCK ──────────────────────────────────────────────────
+  const sigY = trY + 45;
+  txt('For ' + SELLER.name, 370, sigY, { size: 7.5, font: fontB, color: DARK });
+  txt(SELLER.name,          380, sigY+12, { size: 7, font: fontB, color: DARK });
+  line(380, sigY+30, 555, sigY+30, { color: MID, thickness: 0.5 });
+  txt('PARTNER', 460, sigY+38, { size: 7, font: fontB, color: DARK });
+  txt('Partner', 465, sigY+48, { size: 7, color: DARK });
+
+  // Thank you script
+  txt('We truly appreciate your business and look forward to serving you again.', 130, sigY+60, { size: 7, font: fontI, color: MID });
+  txt('Thank you!', 248, sigY+72, { size: 12, font: fontI, color: GOLD });
+
+  // ── GOLD BOTTOM STRIP + DECLARATION ─────────────────────────────────
+  rect(0, H-40, width, 40, { fill: GOLD, borderWidth: 0 });
+  txt('We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
+      80, H-20, { size: 6.5, color: WHITE, font: fontR });
+
+  // Thin gold line just above bottom strip
+  rect(0, H-48, width, 3, { fill: GOLD, borderWidth: 0 });
+
+  return await doc.save();
+}
+
+/* Generate invoices for a list of order rows, merge into one PDF.
+ * Returns Uint8Array of merged PDF.
+ */
+async function generateInvoicesPdf(rows){
+  const { PDFDocument } = PDFLib;
+  const merged = await PDFDocument.create();
+  for(const row of rows){
+    try{
+      const bytes = await generateInvoicePdf(row);
+      const src   = await PDFDocument.load(bytes);
+      const pages = await merged.copyPages(src, src.getPageIndices());
+      pages.forEach(p => merged.addPage(p));
+    } catch(err){
+      console.warn('[TrackLens][Invoice] Failed for', row.orderId, ':', err.message);
+    }
+  }
+  return await merged.save();
 }
 
 document.addEventListener('DOMContentLoaded', init);
