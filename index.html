@@ -5377,22 +5377,62 @@ function parseBluedartTrackingXml(awb, xmlText){
 }
 
 /* Map Bluedart status code/description to TrackLens status. */
+/* Map Bluedart status description to TrackLens status.
+ *
+ * Bluedart description → TrackLens status:
+ *
+ *  Shipment Delivered                    → delivered
+ *  Shipment Out For Delivery             → out_for_delivery  → shipped
+ *  Shipment Picked Up                    → picked_up         → shipped
+ *  Shipment Further Connected            → in_transit        → shipped
+ *  Shipment Arrived                      → in_transit        → shipped
+ *  Paper Work Inscan                     → in_transit        → shipped
+ *  Pickup Employee Is Out To P/U         → pickup_enroute    → NO ADVANCE
+ *  Undelivered / NDR                     → ndr
+ *  RTO Initiated                         → rto
+ *  RTO In Transit                        → rto
+ *  Shipment RTO / Return In Transit      → rto
+ *  Booked / Manifested                   → booked            → NO ADVANCE
+ *  Anything unknown                      → null              → NO ADVANCE
+ */
 function mapBluedartStatus(code, desc){
   const d = (desc || '').toLowerCase();
   const c = (code || '').toUpperCase();
-  if(c === 'DL' || d.includes('delivered'))                          return 'delivered';
-  if(c === 'OD' || d.includes('out for delivery'))                   return 'out_for_delivery';
+
+  // Delivered
+  if(c === 'DL' || d.includes('delivered') && !d.includes('undelivered'))
+                                                                      return 'delivered';
+  // Out for delivery
+  if(c === 'OD' || d.includes('out for delivery'))                    return 'out_for_delivery';
+
+  // RTO — check before 'in transit' so "RTO In Transit" hits here, not in_transit
+  if(c === 'RTO' || d.includes('rto') ||
+     d === 'return in transit' || d.includes('return intransit') ||
+     (d.includes('return') && (d.includes('transit') || d.includes('initiated') || d.includes('shipment'))))
+                                                                      return 'rto';
+
+  // In transit — hub scans, connections, arrivals
   if(c === 'TR' || d.includes('in transit') ||
      d.includes('further connected') || d.includes('shipment arrived') ||
      d.includes('paper work inscan') || d.includes('inscan') ||
      d.includes('outscan'))                                           return 'in_transit';
+
+  // Confirmed physical pickup by courier
   if(c === 'PU' || d.includes('picked up') || d.includes('shipment picked'))
                                                                       return 'picked_up';
+
+  // Pickup employee en route — NOT collected yet → no advance
   if(d.includes('out to p/u') || d.includes('out for pickup') ||
      d.includes('employee is out'))                                   return 'pickup_enroute';
-  if(c === 'ND' || d.includes('undelivered') || d.includes('ndr'))   return 'ndr';
-  if(c === 'RTO' || d.includes('rto') || d.includes('return'))       return 'rto';
+
+  // NDR / undelivered
+  if(c === 'ND' || d.includes('undelivered') || d.includes('ndr') ||
+     d.includes('delivery attempted') || d.includes('door locked'))  return 'ndr';
+
+  // Booked / manifested — label created, not yet collected → no advance
   if(d.includes('booked') || d.includes('manifested'))               return 'booked';
+
+  // Unknown → null, never silently advance
   return null;
 }
 
@@ -7721,7 +7761,7 @@ async function generateInvoicePdf(row){
   // Totals box (right)
   const totX = 310;
   const totRows = [
-    ['Taxable Value', fmtAmt(taxable)],
+    ['Taxable Value', 'Rs. ' + fmtAmt(taxable)],
     gstType === 'igst'
       ? ['IGST', fmtAmt(gstAmt)]
       : ['CGST', fmtAmt(gstAmt/2)],
@@ -7739,7 +7779,7 @@ async function generateInvoicePdf(row){
   const tdY = totY + totRows.length * 14 + 6;
   rect(totX-5, tdY-3, 250, 18, { fill: LIGHT, borderWidth: 0 });
   txt('TOTAL DUE', totX, tdY+10, { size: 9, font: fontB, color: TABLER });
-  txt('₹ ' + fmtAmt(total), totX+135, tdY+10, { size: 12, font: fontB, color: TABLER });
+  txt('Rs. ' + fmtAmt(total), totX+120, tdY+10, { size: 12, font: fontB, color: TABLER });
 
   // ── AMOUNT IN WORDS ──────────────────────────────────────────────────
   const awY = tdY + 30;
