@@ -6355,6 +6355,8 @@ function bindFilters(){
   $('#sendToDispatchBtn').addEventListener('click', () => {
     if(State.selected.size === 0){ toast('Nothing selected', 'error'); return; }
     const today = new Date().toISOString().slice(0, 10);
+    // Use the plan date picker value as the dispatch date for ALL selected orders
+    const planDate = State.planning.planDate || today;
     const toSend = [...State.selected].filter(id => {
       const inv = State.invoices.find(r => r.id === id);
       return inv && (inv.status === 'planned' || inv.status === 'inbox');
@@ -6363,12 +6365,10 @@ function bindFilters(){
       toast('Select orders from the Plan tab first', 'error', 3000);
       return;
     }
-    // Inbox orders need a dispatchDate set before transitioning
+    // Apply the plan date picker value to ALL selected orders
     toSend.forEach(id => {
       const inv = State.invoices.find(r => r.id === id);
-      if(inv && inv.status === 'inbox' && !inv.dispatchDate){
-        inv.dispatchDate = today;
-      }
+      if(inv) inv.dispatchDate = planDate;
     });
     // Transition planned/inbox → dispatching
     const result = setOrderStatusBulk(toSend, 'dispatching', { by: 'manual', reason: 'sent to Pack & Ship' });
