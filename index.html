@@ -7082,21 +7082,52 @@ async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
   return statusMap;
 }
 
-/* Map Cargo status string to TrackLens internal status. */
+/* Map Cargo status string to TrackLens internal status.
+ *
+ * Cargo status → TrackLens status:
+ *
+ *  shipment_created    → null    (label not yet generated, no action)
+ *  processing          → null    (label being generated)
+ *  pending             → null    (awaiting processing)
+ *  cancelled           → null    (cancelled in Cargo — TrackLens handles cancel separately)
+ *  ready_to_ship       → packed  (label generated, pickup not yet booked)
+ *  pickup_generated    → packed  (pickup request sent, courier not yet arrived)
+ *  pickup_scheduled    → packed  (pickup slot confirmed, courier not yet arrived)
+ *  in_transit          → shipped (courier confirmed physical collection ← first real pickup)
+ *  out_for_delivery    → shipped (on delivery vehicle)
+ *  delivered           → delivered
+ *  ndr                 → ndr     (non-delivery report)
+ *  rto                 → rto     (return to origin)
+ *  rto_intransit       → rto
+ *  rto_delivered       → rto
+ *
+ * Cargo returns mixed-case e.g. "Delivered", "In_Transit", "Ready_To_Ship".
+ * Normalise to lowercase snake_case before lookup.
+ */
 function mapCargoStatus(cargoStatus){
   const m = {
+    // Pre-dispatch — label exists but courier hasn't collected
+    'shipment_created':   null,
+    'processing':         null,
+    'pending':            null,
+    'cancelled':          null,
+    // Label generated / pickup requested — not yet collected → stay at packed
     'ready_to_ship':      'packed',
     'pickup_generated':   'packed',
     'pickup_scheduled':   'packed',
+    // Courier confirmed physical collection → shipped
     'in_transit':         'shipped',
     'out_for_delivery':   'shipped',
+    // Terminal
     'delivered':          'delivered',
+    'ndr':                'ndr',
     'rto':                'rto',
     'rto_intransit':      'rto',
     'rto_delivered':      'rto',
-    'ndr':                'ndr'
   };
-  return m[cargoStatus] || null;
+  // Normalise: "Delivered" → "delivered", "In Transit" → "in_transit", "Ready To Ship" → "ready_to_ship"
+  const key = (cargoStatus || '').toLowerCase().replace(/[\s-]+/g, '_');
+  return (key in m) ? m[key] : null;
 }
 
 /* Apply tracking results from the sync report to State.invoices.
