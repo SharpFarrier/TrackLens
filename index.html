@@ -5298,8 +5298,12 @@ async function bluedartTrackAwbScrape(awb){
 }
 
 async function bluedartTrackAwb(awb){
+  // NOTE: Bluedart APIGEE requires a separate developer app client_id + client_secret
+  // (different from shipping LoginID/LicenceKey). Until those are received from
+  // Bluedart support, use web scrape which works reliably.
+  // To enable API: set State.settings.bluedart.useApi = true once creds are confirmed.
   const creds = getBluedartCreds();
-  if(creds.loginId && creds.licenceKey){
+  if(creds.loginId && creds.licenceKey && State.settings.bluedart?.useApi){
     try{
       const result = await bluedartTrackAwbApi(awb);
       if(!result.isError) return result;
