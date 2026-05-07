@@ -108,6 +108,14 @@
   .btn.accent:hover{background:#a83515}
   .btn.sm{padding:5px 10px;font-size:12px}
 
+  /* btn-primary / btn-secondary — Pack & Ship action buttons */
+  .btn-primary{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--accent);color:#fff;transition:background .15s,opacity .15s;}
+  .btn-primary:hover:not(:disabled){background:#a83515;}
+  .btn-primary:disabled{opacity:0.45;cursor:not-allowed;}
+  .btn-secondary{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);transition:background .15s,border-color .15s;}
+  .btn-secondary:hover:not(:disabled){background:var(--surface-2);border-color:var(--ink-3);}
+  .btn-secondary:disabled{opacity:0.45;cursor:not-allowed;}
+
   /* ===== Tab nav ===== */
   .tabs{
     display:flex;
@@ -1601,7 +1609,7 @@
       <div class="stat-card">
         <div class="label">Selected</div>
         <div class="value" id="batchSelectedCount">0</div>
-        <div class="sub" id="batchSelectedSub">orders to dispatch</div>
+        <div class="sub" id="batchSelectedSub">of 0 matching</div>
       </div>
       <div class="stat-card">
         <div class="label">Cargo Ready</div>
@@ -1647,8 +1655,7 @@
         <select id="batchFilterStatus">
           <option value="all">All</option>
           <option value="dispatching">In Dispatch Queue</option>
-          <option value="packed">Packed</option>
-          <option value="shipped">Shipped</option>
+          <option value="packed">Packed (labels printed)</option>
         </select>
       </div>
       <div class="filter-group">
@@ -1668,7 +1675,7 @@
         </div>
         <div class="by-courier" id="batchSelectionByCourier"></div>
       </div>
-      <div class="actions">
+      <div class="actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn-secondary" id="batchSelectAllBtn">Select all matching</button>
         <button class="btn-secondary" id="batchAutoTagBtn" title="Auto-suggest courier from AWB pattern for untagged orders">Auto-tag couriers</button>
         <button class="btn-secondary" id="batchTrackBdBtn" title="Fetch tracking status for selected Bluedart orders">Track Bluedart (0)</button>
@@ -5141,7 +5148,7 @@ function batchFilteredRows(){
   const weekEnd = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
   const chip = f.dispatchDateChip || 'all';
 
-  const PACK_VISIBLE = new Set(['dispatching', 'packed', 'shipped']);
+  const PACK_VISIBLE = new Set(['dispatching', 'packed']);
 
   const rows = State.invoices
     .map(applyAwbOverride)
@@ -5152,7 +5159,6 @@ function batchFilteredRows(){
       // Status dropdown filter
       if(f.status === 'dispatching' && status !== 'dispatching') return false;
       if(f.status === 'packed'      && status !== 'packed')      return false;
-      if(f.status === 'shipped'     && status !== 'shipped')     return false;
 
       // Dispatch date chip filter
       const dd = r.dispatchDate || null;
