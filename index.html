@@ -1432,17 +1432,17 @@
       <div class="stat-card">
         <div class="label">Cargo Ready</div>
         <div class="value" id="kpiPending">—</div>
-        <div class="sub" id="kpiPendingSub">orders ready</div>
+        <div class="sub" id="kpiPendingSub">of pending orders</div>
       </div>
       <div class="stat-card">
         <div class="label">Untagged Courier</div>
         <div class="value" id="kpiUntagged">—</div>
-        <div class="sub">need courier mapping</div>
+        <div class="sub">of pending orders</div>
       </div>
       <div class="stat-card">
         <div class="label">AWB Issues</div>
         <div class="value" id="kpiMissingAwb">—</div>
-        <div class="sub">missing or corrupted</div>
+        <div class="sub">missing or corrupted AWBs</div>
       </div>
       <div class="stat-card">
         <div class="label">Last Sync</div>
@@ -1624,7 +1624,7 @@
       <div class="stat-card">
         <div class="label">Last Batch</div>
         <div class="value" id="batchLastTime" style="font-size:18px">—</div>
-        <div class="sub" id="batchLastSub">no batches yet</div>
+        <div class="sub" id="batchLastSub">dispatching vs packed counts</div>
       </div>
     </div>
 
@@ -4101,17 +4101,22 @@ function renderDispatch(){
     chip.classList.toggle('selected', chip.dataset.dlbucket === State.planning.urgencyFilter);
   });
 
-  const untagged = allRows.filter(r => !r.courier).length;
-  const missingAwb = allRows.filter(r => !r.awb).length;
-  const corruptedAwb = allRows.filter(r => r.awb && !r.awbOk).length;
-  const cargoReady = allRows.filter(r => r.awb && r.awbOk && r.courier === 'cargo').length;
-  const bluedartTagged = allRows.filter(r => r.courier === 'bluedart').length;
-  const delhiveryTagged = allRows.filter(r => r.courier === 'delhivery_direct' || r.courier === 'delhivery').length;
-  const labelsFetched = allRows.filter(r => r.lastFetchedAt).length;
-  const ready = allRows.filter(r => r.awb && r.awbOk && r.courier).length;
+  // KPI cards — count only inbox+planned orders (pending dispatch)
+  const PLAN_STATUSES = new Set(['inbox','planned','dispatching']);
+  const pendingRows = allRows.filter(r => PLAN_STATUSES.has(r.status||'inbox'));
+
+  const untagged      = pendingRows.filter(r => !r.courier).length;
+  const missingAwb    = pendingRows.filter(r => !r.awb).length;
+  const corruptedAwb  = pendingRows.filter(r => r.awb && !r.awbOk).length;
+  const cargoReady    = pendingRows.filter(r => r.awb && r.awbOk && r.courier === 'cargo').length;
+  const bluedartTagged= pendingRows.filter(r => r.courier === 'bluedart').length;
+  const delhiveryTagged=pendingRows.filter(r => r.courier === 'delhivery_direct' || r.courier === 'delhivery').length;
+  const labelsFetched = pendingRows.filter(r => r.lastFetchedAt).length;
+  const ready         = pendingRows.filter(r => r.awb && r.awbOk && r.courier).length;
+  const totalPending  = pendingRows.length;
 
   setText('#kpiPending', cargoReady);
-  setText('#kpiPendingSub', `BD: ${bluedartTagged}  ·  DL: ${delhiveryTagged}  ·  fetched: ${labelsFetched}`);
+  setText('#kpiPendingSub', `BD: ${bluedartTagged}  ·  DL: ${delhiveryTagged}  ·  of ${totalPending} pending`);
   setText('#kpiUntagged', untagged);
   setText('#kpiMissingAwb', missingAwb + corruptedAwb);
 
@@ -5863,19 +5868,43 @@ function renderBatchKpis(rows){
   const setText = (sel, val) => { const el = $(sel); if(el) el.textContent = val; };
   const sel = State.batch.selected;
   const selectedRows = rows.filter(r => sel.has(r.id));
-  const cargoReady = selectedRows.filter(r => r.courier === 'cargo' && r.awb && r.awbOk).length;
-  const skipping = selectedRows.length - cargoReady;
 
+  // All dispatching+packed rows (full set regardless of filter)
+  const allPackRows   = (State.invoices||[]).filter(r => ['dispatching','packed'].includes(r.status||'inbox'));
+  const dispatchingAll= allPackRows.filter(r => (r.status||'inbox') === 'dispatching').length;
+  const packedAll     = allPackRows.filter(r => (r.status||'inbox') === 'packed').length;
+
+  // Selected breakdown
+  const cargoReady  = selectedRows.filter(r => r.courier === 'cargo' && r.awb && r.awbOk).length;
+  const bdSelected  = selectedRows.filter(r => r.courier === 'bluedart').length;
+  const untaggedSel = selectedRows.filter(r => !r.courier).length;
+  const skipping    = selectedRows.length - cargoReady;
+
+  // Card 1: Selected
   setText('#batchSelectedCount', selectedRows.length);
   setText('#batchSelectedSub', `of ${rows.length} matching`);
-  setText('#batchCargoReady', cargoReady);
-  setText('#batchSkipCount', skipping);
-  setText('#batchSkipSub', skipping === 0 ? 'all selected are Cargo' : 'BD/Delhivery direct');
 
+  // Card 2: Cargo Ready (selected cargo orders with valid AWB)
+  setText('#batchCargoReady', cargoReady);
+
+  // Card 3: Will Skip — Bluedart + untagged in selection
+  setText('#batchSkipCount', skipping);
+  if(skipping === 0){
+    setText('#batchSkipSub', 'all selected are Cargo');
+  } else {
+    const parts = [];
+    if(bdSelected > 0)    parts.push(`BD: ${bdSelected}`);
+    if(untaggedSel > 0)   parts.push(`Untagged: ${untaggedSel}`);
+    setText('#batchSkipSub', parts.join(' · ') || 'labels only, no API');
+  }
+
+  // Card 4: Last Batch
   const last = State.batch.history[0];
   if(last){
     setText('#batchLastTime', fmtRelative(last.ts));
-    setText('#batchLastSub', `${last.count} orders · ${last.batchId}`);
+    setText('#batchLastSub', `${last.count} dispatched · ${dispatchingAll} pending · ${packedAll} packed`);
+  } else {
+    setText('#batchLastSub', `${dispatchingAll} in queue · ${packedAll} packed`);
   }
 }
 
