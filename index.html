@@ -5237,19 +5237,81 @@ function getBluedartCreds(){
 /* Fetch tracking status for one AWB from Bluedart.
  * Returns { awb, status, statusCode, lastEvent, events[], isError, errorMsg }
  */
-async function bluedartTrackAwb(awb){
+/* Bluedart JWT cache — shared across all calls */
+const _bdJwt = { token: null, expiresAt: 0 };
+
+async function getBluedartJwt(){
+  const now = Date.now();
+  if(_bdJwt.token && _bdJwt.expiresAt > now + 5*60*1000) return _bdJwt.token;
+  const creds = getBluedartCreds();
+  if(!creds.loginId || !creds.licenceKey) throw new Error('Bluedart Login ID and Licence Key required');
   const base = getProxyBase();
-  // Use Bluedart's third-party tracking URL — returns full static HTML,
-  // no JavaScript rendering needed, no API credentials required.
-  const url = `${base}/bluedart-web?awb=${encodeURIComponent(String(awb).trim())}`;
-  console.log(`[TrackLens][BD] Tracking AWB ${awb} via third-party page`);
+  console.log('[TrackLens][BD] Fetching JWT...');
+  const resp = await fetch(base + '/bluedart/in/transportation/token/v1/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ LoginID: creds.loginId, LicenceKey: creds.licenceKey, Api_type: 'S', Type: 'S' })
+  });
+  const text = await resp.text();
+  console.log('[TrackLens][BD] Auth response:', text.slice(0,300));
+  if(!resp.ok) throw new Error('Bluedart auth HTTP ' + resp.status + ': ' + text.slice(0,200));
+  let data;
+  try { data = JSON.parse(text); } catch(e) { throw new Error('Bluedart auth non-JSON: ' + text.slice(0,200)); }
+  const jwt = data.JWTToken || data.jwtToken || data.token || data.access_token;
+  if(!jwt) throw new Error('Bluedart auth missing JWTToken: ' + JSON.stringify(data).slice(0,300));
+  _bdJwt.token = jwt;
+  _bdJwt.expiresAt = Date.now() + 23*60*60*1000;
+  console.log('[TrackLens][BD] JWT obtained, length:', jwt.length);
+  return jwt;
+}
 
+async function bluedartTrackAwbApi(awb){
+  const creds = getBluedartCreds();
+  const jwt   = await getBluedartJwt();
+  const base  = getProxyBase();
+  const params = new URLSearchParams({
+    handler: 'tnt', action: 'custawbquery',
+    loginid: creds.loginId, pwd: creds.password,
+    awb: 'awb', numbers: String(awb).trim(),
+    format: 'xml', lickey: creds.licenceKey,
+    verno: '1.3', scan: '1',
+    customercode: creds.customerCode
+  });
+  const url = `${base}/bluedart/in/transportation/tracking/v1?${params}`;
+  console.log(`[TrackLens][BD] API tracking AWB ${awb}`);
+  const resp = await fetch(url, { headers: { 'JWTToken': jwt } });
+  const xml  = await resp.text();
+  console.log(`[TrackLens][BD] API response ${xml.length} chars:`, xml.slice(0,300));
+  if(!resp.ok) throw new Error('Bluedart API HTTP ' + resp.status);
+  return parseBluedartTrackingXml(awb, xml);
+}
+
+async function bluedartTrackAwbScrape(awb){
+  const base = getProxyBase();
+  const url  = `${base}/bluedart-web?awb=${encodeURIComponent(String(awb).trim())}`;
+  console.log(`[TrackLens][BD] Scrape tracking AWB ${awb}`);
   const resp = await fetch(url);
-  if(!resp.ok) throw new Error(`Bluedart fetch HTTP ${resp.status}`);
-
+  if(!resp.ok) throw new Error(`Bluedart scrape HTTP ${resp.status}`);
   const html = await resp.text();
-  console.log(`[TrackLens][BD] AWB ${awb}: ${html.length} chars`);
+  console.log(`[TrackLens][BD] Scrape ${html.length} chars`);
   return parseBluedartTrackingHtml(awb, html);
+}
+
+async function bluedartTrackAwb(awb){
+  const creds = getBluedartCreds();
+  if(creds.loginId && creds.licenceKey){
+    try{
+      const result = await bluedartTrackAwbApi(awb);
+      if(!result.isError) return result;
+      console.warn(`[TrackLens][BD] API error for ${awb}: ${result.errorMsg} — falling back to scrape`);
+    } catch(err){
+      console.warn(`[TrackLens][BD] API failed for ${awb}: ${err.message} — falling back to scrape`);
+      if(err.message.includes('401') || err.message.includes('Unauthori')){
+        _bdJwt.token = null; _bdJwt.expiresAt = 0;
+      }
+    }
+  }
+  return bluedartTrackAwbScrape(awb);
 }
 
 /* Parse Bluedart third-party tracking page HTML.
