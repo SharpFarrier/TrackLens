@@ -5569,11 +5569,16 @@ function applyBluedartTrackingResults(results){
       'rto':              'rto'
     };
     const tlStatus = bdToTl[r.status] || null;
-    if(tlStatus === 'delivered' && inv.status === 'shipped'){
-      try { setOrderStatus(inv.id, 'delivered', { by: 'auto', reason: 'Bluedart confirmed delivery', force: true }); } catch(e){}
-    }
-    if(tlStatus === 'shipped' && ['packed','dispatching','inbox','planned'].includes(inv.status)){
-      try { setOrderStatus(inv.id, 'shipped', { by: 'auto', reason: 'Bluedart confirmed pickup', force: true }); } catch(e){}
+    // Advance regardless of current status — if courier confirmed pickup,
+    // even inbox/planned orders move to Track tab directly.
+    if(tlStatus === 'delivered' && statusRank(inv.status||'inbox') >= statusRank('shipped')){
+      try { setOrderStatus(inv.id, 'delivered', { by:'auto', reason:'Bluedart confirmed delivery', force:true }); } catch(e){}
+    } else if(tlStatus === 'ndr'){
+      try { setOrderStatus(inv.id, 'ndr', { by:'auto', reason:'Bluedart NDR', force:true }); } catch(e){}
+    } else if(tlStatus === 'rto'){
+      try { setOrderStatus(inv.id, 'rto', { by:'auto', reason:'Bluedart RTO', force:true }); } catch(e){}
+    } else if(tlStatus === 'shipped' && statusRank(inv.status||'inbox') < statusRank('shipped')){
+      try { setOrderStatus(inv.id, 'shipped', { by:'auto', reason:'Bluedart confirmed pickup', force:true }); } catch(e){}
     }
     updated++;
   });
@@ -7306,22 +7311,40 @@ function applyTrackingResults(results){
   let advanced = 0;
   let notFound = 0;
   let alreadyAdvanced = 0;
+
+  // Statuses that mean courier has physically collected the shipment.
+  // When tracking confirms any of these on ANY order (even inbox/planned),
+  // the order moves straight to Track tab — no planning needed for something
+  // already with the courier.
+  const PICKUP_CONFIRMED = new Set(['shipped','delivered','ndr','rto']);
+
+  // Statuses that are NOT yet picked up — do not advance, keep in Plan tab.
+  // These orders still need to go through the planning → dispatch flow.
+  const NOT_PICKED_UP = new Set(['ready_to_ship','pickup_generated','pickup_scheduled',
+                                 'pickup_enroute','booked','not_yet_scanned',null,undefined,'']);
+
   Object.entries(results).forEach(([awb, r]) => {
     if(r.isError) return;
     const normAwb = String(awb).trim();
     const inv = State.invoices.find(x => x.awb && String(x.awb).trim() === normAwb);
     if(!inv){ notFound++; return; }
+
+    // Always record tracking fetch result so Master Database shows latest courier status
     inv.lastTracking = {
       fetchedAt: new Date().toISOString(),
       status: r.status,
       source: r.source,
       statusLabel: r.statusLabel
     };
-    // null status = don't advance (e.g. ready_to_ship = label generated, not picked up yet)
-    if(!r.status){ alreadyAdvanced++; return; }
-    const currentRank = statusRank(inv.status || 'inbox');
+
+    // null/not-picked-up status = keep in current tab, don't advance
+    if(!r.status || NOT_PICKED_UP.has(r.status)){ alreadyAdvanced++; return; }
+
+    const curStatus = inv.status || 'inbox';
+    const currentRank = statusRank(curStatus);
     const newRank = statusRank(r.status);
     if(newRank <= currentRank){ alreadyAdvanced++; return; }
+
     const reason = `${r.source} confirmed ${r.statusLabel}`;
     try{
       if(r.status === 'delivered'){
@@ -7333,7 +7356,9 @@ function applyTrackingResults(results){
       } else if(r.status === 'ndr'){
         setOrderStatus(inv.id, 'ndr', { by:'auto', reason, force: true });
         advanced++;
-      } else if(r.status === 'shipped'){
+      } else if(PICKUP_CONFIRMED.has(r.status)){
+        // Courier confirmed pickup — move to shipped regardless of current status.
+        // inbox/planned orders already with courier skip the planning flow entirely.
         setOrderStatus(inv.id, 'shipped', { by:'auto', reason, force: true });
         advanced++;
       }
@@ -7347,7 +7372,7 @@ function applyTrackingResults(results){
     renderDispatch();
     if(typeof renderBatch === 'function') renderBatch();
   }
-  console.log(`[TrackLens][Sync] applyTrackingResults: ${Object.keys(results).length} results → ${advanced} advanced, ${alreadyAdvanced} already at correct status, ${notFound} AWBs not found in TrackLens`);
+  console.log(`[TrackLens][Sync] applyTrackingResults: ${Object.keys(results).length} results → ${advanced} advanced, ${alreadyAdvanced} not picked up / already correct, ${notFound} AWBs not found`);
   return advanced;
 }
 
