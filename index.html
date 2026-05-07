@@ -1801,17 +1801,28 @@
 
           <!-- Bluedart -->
           <div class="field-group">
-            <div style="padding:12px 14px;background:var(--surface-2);border-radius:6px;font-size:12px;color:var(--ink-2);line-height:1.7">
-              <strong>Bluedart — Web scrape mode</strong><br>
-              TrackLens fetches tracking from Bluedart's public tracking page — no API credentials required.<br>
-              Awaiting API integration approval from Bluedart support.
-              <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-                <button class="btn ghost sm" id="testBluedartBtn">Test Bluedart tracking</button>
-                <span id="bdAuthResult" style="font-size:11.5px;color:var(--ink-3)"></span>
-              </div>
-              <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">Labels continue to be printed from Shypassist.</div>
+            <label>Bluedart — Login ID <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(Client field in Shypassist → Settings → Bluedart)</span></label>
+            <input type="text" class="mono" id="cred-bd-loginId" placeholder="e.g. BOM41184" autocomplete="off" />
+          </div>
+          <div class="field-group">
+            <label>Bluedart — Password <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(Password field in Shypassist → Settings → Bluedart)</span></label>
+            <input type="password" class="mono" id="cred-bd-password" placeholder="API password" autocomplete="off" />
+          </div>
+          <div class="field-group">
+            <label>Bluedart — Licence Key <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(Token field in Shypassist — used to generate JWT)</span></label>
+            <input type="password" class="mono" id="cred-bd-licenceKey" placeholder="32-character licence key" autocomplete="off" />
+          </div>
+          <div class="field-group">
+            <label>Bluedart — Customer Code <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(Customer Code in Shypassist → Settings → Bluedart)</span></label>
+            <input type="text" class="mono" id="cred-bd-customerCode" placeholder="e.g. BOM485892" autocomplete="off" />
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+              <button class="btn ghost sm" id="testBluedartBtn">Test Bluedart tracking</button>
+              <span id="bdAuthResult" style="font-size:11.5px;color:var(--ink-3)"></span>
             </div>
-            <input type="hidden" id="cred-bd-licenceKey" />
+            <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
+              TrackLens tries API first (JWT auth), falls back to web scrape if API fails.<br>
+              Labels continue to be printed from Shypassist.
+            </div>
           </div>
 
           <div class="save-row">
@@ -2706,7 +2717,8 @@ function restoreLocal(){
   if(!State.settings.involens) State.settings.involens = { dataFolderId: '', invoicesFolderId: '', lastFetchedAt: null, lastModifiedTime: null };
   if(typeof State.settings.involens.dataFolderId !== 'string') State.settings.involens.dataFolderId = '';
   if(!State.settings.proxy) State.settings.proxy = { url: '' };
-  if(!State.settings.bluedart) State.settings.bluedart = { loginId: '', licenceKey: '', customerCode: '' };
+  if(!State.settings.bluedart) State.settings.bluedart = { loginId: '', password: '', licenceKey: '', customerCode: '' };
+  if(State.settings.bluedart.password === undefined) State.settings.bluedart.password = '';
   if(!State.settings.transitOverrides || typeof State.settings.transitOverrides !== 'object') State.settings.transitOverrides = {};
   if(!State.settings.pincodeTransitOverrides || typeof State.settings.pincodeTransitOverrides !== 'object') State.settings.pincodeTransitOverrides = {};
   if(typeof State.settings.transitBufferDays !== 'number' || State.settings.transitBufferDays < 0) State.settings.transitBufferDays = 0;
@@ -5215,9 +5227,10 @@ function batchFilteredRows(){
 function getBluedartCreds(){
   const bd = State.settings.bluedart || {};
   return {
-    loginId:      bd.loginId      || 'BOM41184',
+    loginId:      bd.loginId      || '',
+    password:     bd.password     || '',
     licenceKey:   bd.licenceKey   || '',
-    customerCode: bd.customerCode || '485892'
+    customerCode: bd.customerCode || ''
   };
 }
 
@@ -6611,6 +6624,9 @@ function bindSettings(){
     // Save key first if typed
     const keyInput = $('#cred-bd-licenceKey');
     if(keyInput?.value?.trim()) State.settings.bluedart.licenceKey = keyInput.value.trim();
+    const bdLI2 = $('#cred-bd-loginId'); if(bdLI2?.value?.trim()){ State.settings.bluedart.loginId = bdLI2.value.trim(); _bdJwt.token = null; }
+    const bdPw2 = $('#cred-bd-password'); if(bdPw2?.value?.trim()){ State.settings.bluedart.password = bdPw2.value.trim(); _bdJwt.token = null; }
+    const bdCC2 = $('#cred-bd-customerCode'); if(bdCC2?.value?.trim()) State.settings.bluedart.customerCode = bdCC2.value.trim();
     if(!State.settings.proxy?.url){
       $('#bdAuthResult').textContent = '✗ Set Proxy URL in Drive Sync settings first';
       $('#bdAuthResult').style.color = 'var(--red)';
@@ -6651,8 +6667,14 @@ function saveSettingsSection(section){
     State.settings.shiprocket.password = $('#cred-sr-password').value || State.settings.shiprocket.password;
     State.settings.delhivery.token = $('#cred-dl-token').value || State.settings.delhivery.token;
     // v1.2: Bluedart uses licenceKey (note spelling — matches Bluedart API)
+    const bdLoginId = $('#cred-bd-loginId')?.value?.trim();
+    if(bdLoginId){ State.settings.bluedart.loginId = bdLoginId; _bdJwt.token = null; }
+    const bdPwd = $('#cred-bd-password')?.value?.trim();
+    if(bdPwd){ State.settings.bluedart.password = bdPwd; _bdJwt.token = null; }
     const bdKey = $('#cred-bd-licenceKey')?.value?.trim();
-    if(bdKey) State.settings.bluedart.licenceKey = bdKey;
+    if(bdKey){ State.settings.bluedart.licenceKey = bdKey; _bdJwt.token = null; }
+    const bdCC = $('#cred-bd-customerCode')?.value?.trim();
+    if(bdCC) State.settings.bluedart.customerCode = bdCC;
   }
   if(section === 'messaging'){
     State.settings.interakt.apiKey = $('#cred-it-key').value || State.settings.interakt.apiKey;
@@ -6701,7 +6723,10 @@ function applySettingsToInputs(){
     ['cred-sr-email', State.settings.shiprocket.email, false],
     ['cred-sr-password', State.settings.shiprocket.password, true],
     ['cred-dl-token', State.settings.delhivery.token, true],
-    ['cred-bd-licenceKey', State.settings.bluedart?.licenceKey, true],  // v1.2: correct field
+    ['cred-bd-loginId',      State.settings.bluedart?.loginId,     false],
+    ['cred-bd-password',     State.settings.bluedart?.password,    true],
+    ['cred-bd-licenceKey',   State.settings.bluedart?.licenceKey,  true],
+    ['cred-bd-customerCode', State.settings.bluedart?.customerCode,false],
     ['cred-it-key', State.settings.interakt.apiKey, true],
     ['cred-ops-phones', State.settings.alerts.opsPhones, false],
     ['cred-ops-email', State.settings.alerts.opsEmail, false],
@@ -7499,7 +7524,9 @@ async function runSingleAwbTest(){
     }
     sep();
     if(courier === 'bluedart'){
-      log('Fetching Bluedart tracking page…', '#8a8a87');
+      const creds2 = getBluedartCreds();
+      log('Mode: ' + (creds2.loginId && creds2.licenceKey ? 'API (JWT) → scrape fallback' : 'Web scrape only'), '#8a8a87');
+      log('Fetching…', '#8a8a87');
       const result = await bluedartTrackAwb(awb);
       log('isError: ' + result.isError + (result.isError ? ' — ' + result.errorMsg : ''), result.isError ? '#b03030' : 'var(--ink)');
       if(result.isError) return;
@@ -7553,290 +7580,314 @@ async function runSingleAwbTest(){
 }
 
 /* ============================================================
- * TrackLens Invoice Generator
- * Replicates the InvoLens invoice format exactly.
- * Uses pdf-lib (already loaded). Pure client-side, no server needed.
- * Called during dispatch batch generation instead of fetching from Drive.
+ * TrackLens Invoice Generator v3 — pixel-perfect match to InvoLens
+ * All coordinates measured from actual InvoLens PDF output.
  * ============================================================ */
 
 const SELLER = {
-  name:    'SABI WABI INNOVATIONS LLP',
-  brand:   'Honey Touch',
-  addr1:   'Hissa No 1 B, Survey No.72, Rayate,',
-  addr2:   'Kalyan-murbad Road, Thane,',
-  addr3:   'MAHARASHTRA, 421301',
-  gstin:   '27AFNFS2007K1ZR',
-  state:   'Maharashtra',
-  stateCode: '27'
+  name:  'SABI WABI INNOVATIONS LLP',
+  addr1: 'Hissa No 1 B, Survey No.72, Rayate,',
+  addr2: 'Kalyan-murbad Road, Thane,',
+  addr3: 'MAHARASHTRA, 421301',
+  gstin: '27AFNFS2007K1ZR',
 };
 
-/* Number to words (Indian system, for invoice amount-in-words) */
+const STATE_CODES = {
+  'AN':'Andaman & Nicobar','AP':'Andhra Pradesh','AR':'Arunachal Pradesh',
+  'AS':'Assam','BR':'Bihar','CH':'Chandigarh','CG':'Chhattisgarh',
+  'DD':'Daman & Diu','DL':'Delhi','DN':'Dadra & Nagar Haveli',
+  'GA':'Goa','GJ':'Gujarat','HP':'Himachal Pradesh','HR':'Haryana',
+  'JH':'Jharkhand','JK':'Jammu & Kashmir','KA':'Karnataka','KL':'Kerala',
+  'LA':'Ladakh','LD':'Lakshadweep','MH':'Maharashtra','ML':'Meghalaya',
+  'MN':'Manipur','MP':'Madhya Pradesh','MZ':'Mizoram','NL':'Nagaland',
+  'OR':'Odisha','PB':'Punjab','PY':'Puducherry','RJ':'Rajasthan',
+  'SK':'Sikkim','TG':'Telangana','TN':'Tamil Nadu','TR':'Tripura',
+  'UP':'Uttar Pradesh','UT':'Uttarakhand','WB':'West Bengal'
+};
+
+function resolveStateName(v){
+  if(!v) return '';
+  v = v.trim();
+  if(v.length > 3 && !/^[A-Z]{2,3}$/.test(v)) return v;
+  return STATE_CODES[v.toUpperCase()] || v;
+}
+
+function fmtInvoiceDate(d){
+  if(!d) return '';
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m) return new Date(d).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'});
+  return d;
+}
+
+function extractInvoiceNo(row){
+  if(row.invoiceNo && /^\d+$/.test(String(row.invoiceNo).trim())) return String(row.invoiceNo).trim();
+  const id = String(row.id || row.invoiceNo || '');
+  const parts = id.split('_');
+  const last = parts[parts.length-1];
+  if(last && /^\d+$/.test(last)) return last;
+  return row.orderId || id;
+}
+
 function numberToWords(n){
-  const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine',
-                'Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen',
-                'Seventeen','Eighteen','Nineteen'];
-  const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
-  if(n === 0) return 'Zero';
-  function below1000(x){
-    if(x < 20) return ones[x];
-    if(x < 100) return tens[Math.floor(x/10)] + (x%10 ? ' ' + ones[x%10] : '');
-    return ones[Math.floor(x/100)] + ' Hundred' + (x%100 ? ' ' + below1000(x%100) : '');
-  }
-  let result = '';
-  const crore = Math.floor(n / 10000000); n %= 10000000;
-  const lakh  = Math.floor(n / 100000);   n %= 100000;
-  const thou  = Math.floor(n / 1000);     n %= 1000;
-  const rem   = n;
-  if(crore) result += below1000(crore) + ' Crore ';
-  if(lakh)  result += below1000(lakh)  + ' Lakh ';
-  if(thou)  result += below1000(thou)  + ' Thousand ';
-  if(rem)   result += below1000(rem);
-  return result.trim();
+  const o=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven',
+           'Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const t=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  if(n===0) return 'Zero';
+  function b(x){ return x<20?o[x]:x<100?t[Math.floor(x/10)]+(x%10?' '+o[x%10]:''):o[Math.floor(x/100)]+' Hundred'+(x%100?' '+b(x%100):''); }
+  let r='';
+  const cr=Math.floor(n/10000000); n%=10000000;
+  const la=Math.floor(n/100000);   n%=100000;
+  const th=Math.floor(n/1000);     n%=1000;
+  if(cr) r+=b(cr)+' Crore ';
+  if(la) r+=b(la)+' Lakh ';
+  if(th) r+=b(th)+' Thousand ';
+  if(n)  r+=b(n);
+  return r.trim();
 }
 
-function fmtAmt(n){ return Number(n).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+function fmtAmt(n){ return Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function getGstType(s){ const v=(s||'').toLowerCase().trim(); return (v==='maharashtra'||v==='mh'||v==='27')?'cgst_sgst':'igst'; }
 
-/* Determine GST type: IGST if destination state ≠ Maharashtra, else CGST+SGST */
-function getGstType(destState){
-  const s = (destState || '').toLowerCase().trim();
-  return (s === 'maharashtra' || s === 'mh') ? 'cgst_sgst' : 'igst';
-}
-
-/* Generate a single invoice PDF as Uint8Array using pdf-lib.
- * row = InvoLens order record (from State.invoices)
- */
 async function generateInvoicePdf(row){
-  const { PDFDocument, rgb, degrees } = PDFLib;
+  const {PDFDocument,rgb}=PDFLib;
 
-  // Colours from the InvoLens invoice
-  const GOLD   = rgb(0.780, 0.659, 0.361);  // #C7A85C header/accent
-  const DARK   = rgb(0.133, 0.133, 0.133);  // #222 body text
-  const MID    = rgb(0.400, 0.400, 0.400);  // #666 secondary
-  const LIGHT  = rgb(0.960, 0.949, 0.918);  // #F5F2EA bill-to bg
-  const WHITE  = rgb(1, 1, 1);
-  const BLACK  = rgb(0, 0, 0);
-  const TABLER = rgb(0.243, 0.302, 0.388);  // #3E4D63 table header bg
+  const GOLD  = rgb(0.780,0.659,0.361);
+  const DARK  = rgb(0.133,0.133,0.133);
+  const MID   = rgb(0.420,0.420,0.420);
+  const CREAM = rgb(0.961,0.949,0.918);
+  const WHITE = rgb(1,1,1);
+  const BLACK = rgb(0,0,0);
+  const NAVY  = rgb(0.243,0.302,0.388);
 
   const doc  = await PDFDocument.create();
-  const page = doc.addPage([595.28, 841.89]); // A4
-  const { width, height } = page.getSize();
-  const H = height; // shorthand — pdf-lib Y is bottom-up
+  const page = doc.addPage([595.28,841.89]);
+  const H    = 841.89;
 
-  // Embed standard fonts
-  const fontB = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
-  const fontR = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
-  const fontI = await doc.embedFont(PDFLib.StandardFonts.HelveticaOblique);
+  const fB  = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+  const fR  = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
+  const fI  = await doc.embedFont(PDFLib.StandardFonts.HelveticaOblique);
+  const fBI = await doc.embedFont(PDFLib.StandardFonts.HelveticaBoldOblique);
 
-  // Helper: draw text (y is from TOP, we convert)
-  const txt = (text, x, yFromTop, opts={}) => {
-    page.drawText(String(text), {
-      x, y: H - yFromTop,
-      size:  opts.size  || 8,
-      font:  opts.font  || fontR,
-      color: opts.color || DARK,
-      maxWidth: opts.maxWidth,
-      lineHeight: opts.lineHeight || 11,
-    });
+  // t(text, x, yFromTop, opts)
+  const t=(tx,x,yT,o={})=>{
+    if(tx===null||tx===undefined||tx==='') return;
+    page.drawText(String(tx),{x,y:H-yT,size:o.s||8,font:o.f||fR,color:o.c||DARK,maxWidth:o.w,lineHeight:o.lh||11});
   };
+  const rr=(x,yT,w,h,o={})=>page.drawRectangle({x,y:H-yT-h,width:w,height:h,color:o.fill,borderColor:o.stroke,borderWidth:o.bw||0,opacity:o.op||1});
+  const ln=(x1,y1,x2,y2,o={})=>page.drawLine({start:{x:x1,y:H-y1},end:{x:x2,y:H-y2},thickness:o.w||0.5,color:o.c||MID});
 
-  // Helper: draw rect
-  const rect = (x, yFromTop, w, h2, opts={}) => {
-    page.drawRectangle({
-      x, y: H - yFromTop - h2,
-      width: w, height: h2,
-      color: opts.fill,
-      borderColor: opts.stroke,
-      borderWidth: opts.borderWidth || 0.5,
-      opacity: opts.opacity || 1,
-    });
-  };
+  // ── TOP GOLD STRIP ──
+  rr(0,0,595.28,8,{fill:GOLD});
 
-  // Helper: draw line
-  const line = (x1, y1, x2, y2, opts={}) => {
-    page.drawLine({
-      start: { x: x1, y: H - y1 },
-      end:   { x: x2, y: H - y2 },
-      thickness: opts.thickness || 0.5,
-      color: opts.color || MID,
-    });
-  };
+  // ── BRAND: exact positions from InvoLens ──
+  // "Honey" x=46 y=46 (bold black ~21pt), "Touch" x=118 y=43 (bold italic gold ~23pt)
+  t('Honey',46,52, {s:21,f:fB,c:BLACK});
+  t('Touch',118,49,{s:23,f:fBI,c:GOLD});
 
-  // ── HEADER BAR (gold top strip) ──────────────────────────────────────
-  rect(0, 0, width, 8, { fill: GOLD, borderWidth: 0 });
+  // Small gold circle before seller name (pin icon approx)
+  page.drawCircle({x:228,y:H-47,size:5,color:GOLD});
 
-  // Brand name "Honey Touch" — large bold
-  txt('Honey', 38, 50, { size: 22, font: fontB, color: BLACK });
-  txt('Touch', 98, 50, { size: 22, font: fontI, color: GOLD });
+  // ── SELLER BLOCK: x=235 ──
+  t(SELLER.name, 235,47,{s:7.5,f:fB,c:DARK});
+  t(SELLER.addr1,235,60,{s:7,f:fR,c:MID});
+  t(SELLER.addr2,235,70,{s:7,f:fR,c:MID});
+  t(SELLER.addr3,235,80,{s:7,f:fR,c:MID});
 
-  // Seller details (right of brand)
-  txt(SELLER.name,  220, 42, { size: 7.5, font: fontB, color: DARK });
-  txt(SELLER.addr1, 220, 53, { size: 7,   color: MID });
-  txt(SELLER.addr2, 220, 62, { size: 7,   color: MID });
-  txt(SELLER.addr3, 220, 71, { size: 7,   color: MID });
+  // ── INVOICE text: x=384 ──
+  t('INVOICE',384,62,{s:30,f:fB,c:NAVY});
+  rr(384,66,170,3,{fill:GOLD});
 
-  // "INVOICE" large text top right
-  txt('INVOICE', 370, 60, { size: 28, font: fontB, color: TABLER });
-  // Gold underline under INVOICE
-  rect(370, 68, 180, 3, { fill: GOLD, borderWidth: 0 });
-
-  // Invoice meta box (right)
-  const metaX = 370, metaY = 80;
-  const metaRows = [
-    ['Invoice No.',   String(row.invoiceNo || row.id || '').replace('inv_imp_','')],
-    ['Invoice Date',  row.invoiceDate || new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})],
-    ['Seller GSTIN',  SELLER.gstin],
-    ['Place of Supply:', row.state || ''],
+  // ── META BOX: exact column positions ──
+  // Labels at x=396, colon at x=462, values at x=474
+  const invoiceNo   = extractInvoiceNo(row);
+  const invoiceDate = fmtInvoiceDate(row.invoiceDate||row.date||new Date().toISOString().slice(0,10));
+  const stateName   = resolveStateName(row.state||row.buyerState||'');
+  const metaData = [
+    ['Invoice No.',    invoiceNo,   94 ],
+    ['Invoice Date',   invoiceDate, 109],
+    ['Seller GSTIN',   SELLER.gstin,125],
+    ['Place of Supply:',stateName,  141],
   ];
-  metaRows.forEach(([label, val], i) => {
-    txt(label, metaX,     metaY + i*14, { size: 7.5, color: MID });
-    txt(':',   metaX+70,  metaY + i*14, { size: 7.5, color: MID });
-    txt(val,   metaX+78,  metaY + i*14, { size: 7.5, font: fontB, color: DARK });
+  metaData.forEach(([label,val,y])=>{
+    t(label, 396,y,{s:7.5,f:fR,c:MID});
+    t(':',   462,y,{s:7.5,f:fR,c:MID});
+    t(val||'',474,y,{s:7.5,f:fB,c:DARK});
   });
 
-  // ── BILL TO SECTION ──────────────────────────────────────────────────
-  const btY = 155;
-  rect(38, btY, 260, 90, { fill: LIGHT, borderWidth: 0 });
-  // Small person icon circle
-  rect(50, btY+8, 18, 18, { fill: GOLD, borderWidth: 0 });
-  txt('BILL TO', 75, btY+14, { size: 7, font: fontB, color: GOLD });
-  txt(row.customerName || '', 75, btY+26, { size: 10, font: fontB, color: DARK });
+  // ── BILL TO SECTION ──
+  // Background cream box
+  rr(75,158,265,85,{fill:CREAM});
+  // Gold circle icon at x~80, y~170
+  page.drawCircle({x:84,y:H-173,size:8,color:GOLD});
+  t('BILL TO',  96,173,{s:6.5,f:fB,c:GOLD});
+  t(row.customerName||'', 87,185,{s:9,f:fB,c:DARK});
 
-  // Address — split long address across lines
-  const addrLines = [];
-  const addr = row.raw?.consignee || {};
-  if(addr.address_line_1) addrLines.push(addr.address_line_1);
-  if(addr.address_line_2) addrLines.push(addr.address_line_2);
-  const cityState = [addr.city, addr.state, addr.pincode].filter(Boolean).join(' ');
-  if(cityState) addrLines.push(cityState);
-  addrLines.forEach((l, i) => txt(l, 75, btY+38+i*10, { size: 7.5, color: DARK, maxWidth: 215 }));
-  const contactY = btY + 38 + addrLines.length * 10 + 4;
-  txt('State: ' + (row.state||'') + '   Contact: ' + (row.customerPhone||''), 75, contactY, { size: 7, color: MID });
+  // Address — build from raw fields
+  const ra  = row.raw?.consignee||row.raw?.shipping_address||row.raw?.buyerAddress||{};
+  const a1  = ra.address_line_1||ra.address1||ra.line1||row.address1||'';
+  const a2  = ra.address_line_2||ra.address2||ra.line2||row.address2||'';
+  const city= ra.city||row.city||'';
+  const st  = resolveStateName(ra.state||row.state||'');
+  const pin = ra.pincode||ra.zip||row.pincode||'';
+  const phone=row.customerPhone||ra.phone||ra.mobile||'';
 
-  // Thank you cursive (right side of bill-to)
-  txt('Thank you for your business!', 310, btY+40, { size: 11, font: fontI, color: GOLD });
+  const addrLines=[];
+  if(a1) addrLines.push(a1);
+  if(a2) addrLines.push(a2);
+  const cl=[city,st,pin].filter(Boolean).join(' ');
+  if(cl) addrLines.push(cl);
 
-  // ── ITEMS TABLE ──────────────────────────────────────────────────────
-  const tY = 255;
-  // Header row background
-  rect(38, tY, width-76, 18, { fill: TABLER, borderWidth: 0 });
-  const tHeaders = [
-    ['NO.',         45,  tY+12],
-    ['DESCRIPTION', 72,  tY+12],
-    ['QTY',        305,  tY+12],
-    ['UNIT PRICE', 350,  tY+12],
-    ['TAXABLE',    420,  tY+12],
-    ['AMOUNT',     490,  tY+12],
+  addrLines.slice(0,3).forEach((l,i)=>t(l,88,205+i*12,{s:7.5,f:fR,c:DARK,w:240}));
+  const ctY=205+Math.min(addrLines.length,3)*12+2;
+  t('State: '+st+'   Contact: '+phone, 88,ctY,{s:7,f:fR,c:MID});
+
+  // ── THANK YOU (cursive right side) ──
+  // In original: "Thank" x=322 y=199, "you" x=376 y=203, "for" x=412, "your" x=439, "business!" x=478
+  // Render as one italic string spanning ~x=322
+  t('Thank',   322,205,{s:20,f:fBI,c:GOLD});
+  t('you',     376,209,{s:16,f:fBI,c:GOLD});
+  t('for your',412,205,{s:18,f:fBI,c:GOLD});
+  t('business!',439,215,{s:17,f:fBI,c:GOLD});
+
+  // ── ITEMS TABLE ──
+  // Header row y=271 (text), background ~y=260
+  rr(38,258,520,22,{fill:NAVY});
+  // Col headers — exact positions from InvoLens
+  t('NO.',        53,271,{s:7,f:fB,c:WHITE});
+  t('DESCRIPTION',85,271,{s:7,f:fB,c:WHITE});
+  t('QTY',       316,271,{s:7,f:fB,c:WHITE});
+  t('UNIT',      379,271,{s:7,f:fB,c:WHITE});
+  t('PRICE',     374,282,{s:7,f:fB,c:WHITE});
+  t('TAXABLE',   431,271,{s:7,f:fB,c:WHITE});
+  t('AMOUNT',    503,271,{s:7,f:fB,c:WHITE});
+
+  // Items
+  const total   = Number(row.amount||0);
+  const taxable = total/1.18;
+  const gstAmt  = total-taxable;
+  const gstType = getGstType(row.state||row.buyerState||'');
+
+  const rawLines=row.raw?.lines||row.raw?.items||[];
+  const items=rawLines.length>0?rawLines:[{
+    description:row.productName||row.product||row.sku||'Product',
+    sku:row.sku||'', hsn:row.hsn||'9403',
+    qty:row.qty||1, unitPrice:total, taxable:taxable, amount:total,
+  }];
+
+  let rowY=280;
+  items.forEach((item,idx)=>{
+    const rh=30;
+    rr(38,rowY,520,rh,{fill:idx%2===0?WHITE:CREAM,stroke:rgb(0.88,0.88,0.88),bw:0.3});
+    const desc=item.description||item.product_name||item.name||'';
+    const sku=item.sku||'';
+    const hsn=item.hsn||item.hsn_code||'9403';
+    const qty=item.qty||item.quantity||1;
+    const up=Number(item.unitPrice||item.unit_price||item.price||total);
+    const tax=Number(item.taxable||item.taxable_amount||(up/1.18));
+    const amt=Number(item.amount||item.total||up);
+
+    // Exact col positions from InvoLens item row
+    t(String(idx+1), 60,rowY+12,{s:8,f:fR,c:DARK});
+    t(desc,          85,rowY+11,{s:8,f:fB,c:DARK,w:225});
+    t('SKU '+sku+' \xB7 HSN '+hsn, 85,rowY+21,{s:6.5,f:fI,c:MID});
+    t(String(qty),  323,rowY+12,{s:8,f:fR,c:DARK});
+    t(fmtAmt(up),   367,rowY+12,{s:8,f:fR,c:DARK});
+    t(fmtAmt(tax),  438,rowY+12,{s:8,f:fR,c:DARK});
+    t(fmtAmt(amt),  509,rowY+12,{s:8,f:fR,c:DARK});
+    rowY+=rh;
+  });
+
+  // ── PAYMENT + TOTALS ──
+  const secY=rowY+18;
+
+  // Payment left — exact positions
+  t('PAYMENT',  69,secY+5, {s:7,f:fB,c:GOLD});
+  t('METHODS',  117,secY+5,{s:7,f:fB,c:GOLD});
+  // small square icon before payment
+  rr(52,secY-2,12,12,{fill:GOLD});
+  t('100% advance before Dispatch',46,secY+18,{s:7,f:fR,c:DARK});
+  t('Bank Transfer',66,secY+30,{s:7,f:fR,c:MID});
+  t('0',131,secY+30,{s:7,f:fR,c:MID});
+  t('UPI',146,secY+30,{s:7,f:fR,c:MID});
+  t('Credit/Debit Card',191,secY+30,{s:7,f:fR,c:MID});
+
+  // Totals right — exact col positions: label x=336, value x=507-514
+  const gstRows=gstType==='igst'
+    ?[['IGST',fmtAmt(gstAmt),514]]
+    :[['CGST',fmtAmt(gstAmt/2),514],['SGST',fmtAmt(gstAmt/2),514]];
+  const totRows=[
+    ['Taxable Value',fmtAmt(taxable),507],
+    ...gstRows,
+    ['Shipping','included',507],
   ];
-  tHeaders.forEach(([h, x, y]) => txt(h, x, y, { size: 7, font: fontB, color: WHITE }));
-
-  // Item rows
-  const lines = row.raw?.lines || [{ product_name: row.productName, sku: row.sku, qty: row.qty || 1, unit_price: row.amount, taxable: row.amount/1.18, hsn: '9403' }];
-  let rowY = tY + 18;
-  lines.forEach((item, idx) => {
-    const bgFill = idx % 2 === 0 ? WHITE : LIGHT;
-    const rh = 28;
-    rect(38, rowY, width-76, rh, { fill: bgFill, stroke: LIGHT, borderWidth: 0.3 });
-    txt(String(idx+1),                       45,  rowY+10, { size: 8, color: DARK });
-    txt(item.product_name || item.description || '', 72, rowY+9,  { size: 8, font: fontB, color: DARK, maxWidth: 220 });
-    txt('SKU ' + (item.sku||'') + '   HSN ' + (item.hsn||'9403'), 72, rowY+19, { size: 6.5, font: fontI, color: MID });
-    txt(String(item.qty || 1),               310, rowY+10, { size: 8, color: DARK });
-    txt(fmtAmt(item.unit_price || item.price || row.amount), 350, rowY+10, { size: 8, color: DARK });
-    txt(fmtAmt(item.taxable_amount || item.taxable || (row.amount/1.18)), 422, rowY+10, { size: 8, color: DARK });
-    txt(fmtAmt(item.amount || item.total || row.amount), 490, rowY+10, { size: 8, color: DARK });
-    rowY += rh;
+  totRows.forEach(([label,val,vx],i)=>{
+    t(label, 336,secY+i*16,  {s:8,f:fR,c:DARK});
+    t(val,   vx, secY+i*16,  {s:8,f:label==='Shipping'?fI:fR,c:label==='Shipping'?MID:DARK});
   });
 
-  // ── TOTALS + PAYMENT SECTION ─────────────────────────────────────────
-  const totY = rowY + 15;
-  const total     = Number(row.amount || 0);
-  const taxable   = total / 1.18;
-  const gstAmt    = total - taxable;
-  const gstType   = getGstType(row.state);
+  // TOTAL DUE — exact: labels y=450, value y=447 x=482
+  const tdBaseY=secY+totRows.length*16+10;
+  // light background strip
+  rr(318,tdBaseY-4,240,20,{fill:CREAM});
+  t('TOTAL',336,tdBaseY+10,{s:9,f:fB,c:NAVY});
+  t('DUE',  373,tdBaseY+10,{s:9,f:fB,c:NAVY});
+  t(fmtAmt(total),482,tdBaseY+8,{s:13,f:fB,c:NAVY});
 
-  // Payment methods (left)
-  txt('PAYMENT METHODS', 50, totY+5, { size: 7, font: fontB, color: GOLD });
-  txt('100% advance before Dispatch', 50, totY+17, { size: 7, color: DARK });
-  txt('Bank Transfer    UPI    Credit / Debit Card', 50, totY+28, { size: 7, color: MID });
+  // ── AMOUNT IN WORDS ──
+  const awY=tdBaseY+30;
+  rr(38,awY,520,28,{fill:CREAM});
+  t('AMOUNT IN WORDS',55,awY+9, {s:6.5,f:fB,c:GOLD});
+  t(numberToWords(Math.round(total))+' Only',58,awY+20,{s:8,f:fB,c:DARK});
 
-  // Totals box (right)
-  const totX = 310;
-  const totRows = [
-    ['Taxable Value', 'Rs. ' + fmtAmt(taxable)],
-    gstType === 'igst'
-      ? ['IGST', fmtAmt(gstAmt)]
-      : ['CGST', fmtAmt(gstAmt/2)],
-    gstType === 'cgst_sgst'
-      ? ['SGST', fmtAmt(gstAmt/2)]
-      : null,
-    ['Shipping', 'included'],
-  ].filter(Boolean);
-  totRows.forEach(([label, val], i) => {
-    txt(label, totX,     totY + i*14, { size: 8, color: DARK });
-    txt(val,   totX+155, totY + i*14, { size: 8, color: DARK, font: gstType === 'igst' && i===1 ? fontB : fontR });
-  });
-
-  // Total Due row (bold, gold bg)
-  const tdY = totY + totRows.length * 14 + 6;
-  rect(totX-5, tdY-3, 250, 18, { fill: LIGHT, borderWidth: 0 });
-  txt('TOTAL DUE', totX, tdY+10, { size: 9, font: fontB, color: TABLER });
-  txt('Rs. ' + fmtAmt(total), totX+120, tdY+10, { size: 12, font: fontB, color: TABLER });
-
-  // ── AMOUNT IN WORDS ──────────────────────────────────────────────────
-  const awY = tdY + 30;
-  rect(38, awY, width-76, 28, { fill: LIGHT, borderWidth: 0 });
-  txt('AMOUNT IN WORDS', 45, awY+9, { size: 6.5, font: fontB, color: GOLD });
-  const wholePart = Math.round(total);
-  txt(numberToWords(wholePart) + ' Only', 45, awY+19, { size: 8, font: fontB, color: DARK });
-
-  // ── TRACKING ID ──────────────────────────────────────────────────────
-  const trY = awY + 38;
-  const awbValue = row.awb || '';
-  if(awbValue){
-    txt('TRACKING ID', 45, trY+8, { size: 6.5, font: fontB, color: GOLD });
-    txt(awbValue, 45, trY+18, { size: 9, font: fontB, color: DARK });
+  // ── TRACKING ID ──
+  const trY=awY+36;
+  if(row.awb){
+    const courier=(row.courier||'').toLowerCase();
+    const isBD=courier.includes('blue')||courier.includes('bd')||/^[56]\d{9,}$/.test(String(row.awb));
+    t('TRACKING ID'+(isBD?' (BLUEDART)':''),56,trY+8,{s:6.5,f:fB,c:GOLD});
+    t(String(row.awb),57,trY+19,{s:8,f:fB,c:DARK});
   }
 
-  // ── SIGNATURE BLOCK ──────────────────────────────────────────────────
-  const sigY = trY + 45;
-  txt('For ' + SELLER.name, 370, sigY, { size: 7.5, font: fontB, color: DARK });
-  txt(SELLER.name,          380, sigY+12, { size: 7, font: fontB, color: DARK });
-  line(380, sigY+30, 555, sigY+30, { color: MID, thickness: 0.5 });
-  txt('PARTNER', 460, sigY+38, { size: 7, font: fontB, color: DARK });
-  txt('Partner', 465, sigY+48, { size: 7, color: DARK });
+  // ── SIGNATURE ──
+  const sigY=trY+45;
+  t('For ',422,sigY,{s:7.5,f:fR,c:DARK});
+  t(SELLER.name,436,sigY,{s:7.5,f:fB,c:DARK});
+  t(SELLER.name,447,sigY+14,{s:7,f:fB,c:DARK});
+  // signature scribble placeholder line
+  ln(447,sigY+28,557,sigY+28,{c:MID,w:0.5});
+  t('PARTNER',517,sigY+35,{s:7,f:fB,c:DARK});
+  t('Partner', 522,sigY+46,{s:7,f:fR,c:DARK});
 
-  // Thank you script
-  txt('We truly appreciate your business and look forward to serving you again.', 130, sigY+60, { size: 7, font: fontI, color: MID });
-  txt('Thank you!', 248, sigY+72, { size: 12, font: fontI, color: GOLD });
+  // ── FOOTER SCRIPT ──
+  t('We truly appreciate your business and look forward to serving you again.',163,sigY+60,{s:7,f:fI,c:MID});
+  t('Thank',260,sigY+70,{s:14,f:fBI,c:GOLD});
+  t('you!',295,sigY+70,{s:14,f:fBI,c:GOLD});
 
-  // ── GOLD BOTTOM STRIP + DECLARATION ─────────────────────────────────
-  rect(0, H-40, width, 40, { fill: GOLD, borderWidth: 0 });
-  txt('We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
-      80, H-20, { size: 6.5, color: WHITE, font: fontR });
-
-  // Thin gold line just above bottom strip
-  rect(0, H-48, width, 3, { fill: GOLD, borderWidth: 0 });
+  // ── BOTTOM STRIP + DECLARATION ──
+  rr(0,755,595.28,87,{fill:WHITE});
+  t('We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',108,755,{s:6.5,f:fR,c:DARK});
+  // Gold bottom strip
+  rr(0,801,595.28,41,{fill:GOLD});
 
   return await doc.save();
 }
 
-/* Generate invoices for a list of order rows, merge into one PDF.
- * Returns Uint8Array of merged PDF.
- */
 async function generateInvoicesPdf(rows){
-  const { PDFDocument } = PDFLib;
-  const merged = await PDFDocument.create();
+  const {PDFDocument}=PDFLib;
+  const merged=await PDFDocument.create();
   for(const row of rows){
     try{
-      const bytes = await generateInvoicePdf(row);
-      const src   = await PDFDocument.load(bytes);
-      const pages = await merged.copyPages(src, src.getPageIndices());
-      pages.forEach(p => merged.addPage(p));
+      const bytes=await generateInvoicePdf(row);
+      const src=await PDFDocument.load(bytes);
+      const pages=await merged.copyPages(src,src.getPageIndices());
+      pages.forEach(p=>merged.addPage(p));
     } catch(err){
-      console.warn('[TrackLens][Invoice] Failed for', row.orderId, ':', err.message);
+      console.warn('[TrackLens][Invoice] Failed for',row.orderId,':',err.message);
     }
   }
   return await merged.save();
 }
+
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
