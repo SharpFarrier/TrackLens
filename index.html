@@ -7714,111 +7714,127 @@ function numberToWords(n){
 function fmtAmt(n){ return Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function getGstType(s){ const v=(s||'').toLowerCase().trim(); return (v==='maharashtra'||v==='mh'||v==='27')?'cgst_sgst':'igst'; }
 
+/* Draw ₹ symbol using pdf-lib primitives (Helvetica doesn't support Unicode).
+ * Draws at (x, y_from_top) with given size. Matches InvoLens appearance.
+ */
+function drawRupee(page, x, yTop, size, color, H){
+  const s = size;
+  const y = H - yTop;
+  // R shape: vertical stroke + two horizontal bars
+  const sw = s * 0.08;
+  // Vertical bar
+  page.drawLine({start:{x:x,y:y}, end:{x:x,y:y-s*0.85}, thickness:sw, color});
+  // Top horizontal bar
+  page.drawLine({start:{x:x,y:y-s*0.1}, end:{x:x+s*0.45,y:y-s*0.1}, thickness:sw, color});
+  // Middle horizontal bar (the rupee's crossbar)
+  page.drawLine({start:{x:x,y:y-s*0.38}, end:{x:x+s*0.45,y:y-s*0.38}, thickness:sw, color});
+  // Diagonal stroke from middle bar to bottom right
+  page.drawLine({start:{x:x+s*0.05,y:y-s*0.38}, end:{x:x+s*0.45,y:y-s*0.85}, thickness:sw*0.9, color});
+  // Small arc suggestion for R top-right (two lines)
+  page.drawLine({start:{x:x+s*0.45,y:y-s*0.1}, end:{x:x+s*0.48,y:y-s*0.24}, thickness:sw*0.7, color});
+  page.drawLine({start:{x:x+s*0.48,y:y-s*0.24}, end:{x:x+s*0.45,y:y-s*0.38}, thickness:sw*0.7, color});
+}
+
 async function generateInvoicePdf(row){
   const {PDFDocument,rgb}=PDFLib;
 
-  const GOLD  = rgb(0.780,0.659,0.361);
-  const DARK  = rgb(0.133,0.133,0.133);
-  const MID   = rgb(0.420,0.420,0.420);
-  const CREAM = rgb(0.961,0.949,0.918);
-  const WHITE = rgb(1,1,1);
-  const BLACK = rgb(0,0,0);
-  const NAVY  = rgb(0.243,0.302,0.388);
+  // Exact colors sampled from InvoLens PDF
+  const CREAM_BG  = rgb(0.988,0.984,0.969);  // page background rgb(252,251,247)
+  const CREAM_BOX = rgb(0.980,0.922,0.820);   // bill-to box rgb(249,235,209)
+  const CREAM_TOT = rgb(0.984,0.906,0.761);   // total due bg rgb(251,231,194)
+  const GOLD      = rgb(0.784,0.580,0.282);   // table header / accents rgb(200,148,72)
+  const DARK_BRN  = rgb(0.239,0.157,0.090);   // INVOICE title / dark text rgb(61,40,23)
+  const DARK      = rgb(0.200,0.180,0.160);   // body text
+  const MID       = rgb(0.500,0.460,0.420);   // secondary text
+  const WHITE     = rgb(1,1,1);               // table header text
 
   const doc  = await PDFDocument.create();
   const page = doc.addPage([595.28,841.89]);
   const H    = 841.89;
+
+  // Fill entire page with cream background
+  page.drawRectangle({x:0,y:0,width:595.28,height:841.89,color:CREAM_BG});
 
   const fB  = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
   const fR  = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
   const fI  = await doc.embedFont(PDFLib.StandardFonts.HelveticaOblique);
   const fBI = await doc.embedFont(PDFLib.StandardFonts.HelveticaBoldOblique);
 
-  // t(text, x, yFromTop, opts)
   const t=(tx,x,yT,o={})=>{
     if(tx===null||tx===undefined||tx==='') return;
     page.drawText(String(tx),{x,y:H-yT,size:o.s||8,font:o.f||fR,color:o.c||DARK,maxWidth:o.w,lineHeight:o.lh||11});
   };
-  const rr=(x,yT,w,h,o={})=>page.drawRectangle({x,y:H-yT-h,width:w,height:h,color:o.fill,borderColor:o.stroke,borderWidth:o.bw||0,opacity:o.op||1});
+  const rr=(x,yT,w,h2,o={})=>page.drawRectangle({x,y:H-yT-h2,width:w,height:h2,color:o.fill,borderColor:o.stroke,borderWidth:o.bw||0});
   const ln=(x1,y1,x2,y2,o={})=>page.drawLine({start:{x:x1,y:H-y1},end:{x:x2,y:H-y2},thickness:o.w||0.5,color:o.c||MID});
 
-  // ── TOP GOLD STRIP ──
-  rr(0,0,595.28,8,{fill:GOLD});
+  // ── BRAND ──
+  t('Honey',46,46,{s:21,f:fB,c:DARK_BRN});
+  t('Touch',118,43,{s:23,f:fBI,c:GOLD});
 
-  // ── BRAND: exact positions from InvoLens ──
-  // "Honey" x=46 y=46 (bold black ~21pt), "Touch" x=118 y=43 (bold italic gold ~23pt)
-  t('Honey',46,52, {s:21,f:fB,c:BLACK});
-  t('Touch',118,49,{s:23,f:fBI,c:GOLD});
-
-  // Small gold circle before seller name (pin icon approx)
+  // Small gold circle (pin icon) before seller name
   page.drawCircle({x:228,y:H-47,size:5,color:GOLD});
 
-  // ── SELLER BLOCK: x=235 ──
-  t(SELLER.name, 235,47,{s:7.5,f:fB,c:DARK});
-  t(SELLER.addr1,235,60,{s:7,f:fR,c:MID});
-  t(SELLER.addr2,235,70,{s:7,f:fR,c:MID});
-  t(SELLER.addr3,235,80,{s:7,f:fR,c:MID});
+  // ── SELLER ──
+  t(SELLER.name, 235,47,{s:7.5,f:fB,c:DARK,w:140});
+  t(SELLER.addr1,235,60,{s:7,f:fR,c:MID,w:140});
+  t(SELLER.addr2,235,70,{s:7,f:fR,c:MID,w:140});
+  t(SELLER.addr3,235,80,{s:7,f:fR,c:MID,w:140});
 
-  // ── INVOICE text: x=384 ──
-  t('INVOICE',384,62,{s:30,f:fB,c:NAVY});
+  // ── INVOICE title ──
+  t('INVOICE',384,62,{s:30,f:fB,c:DARK_BRN});
+  // Gold underline
   rr(384,66,170,3,{fill:GOLD});
 
-  // ── META BOX: exact column positions ──
-  // Labels at x=396, colon at x=462, values at x=474
+  // ── META BOX ──
   const invoiceNo   = extractInvoiceNo(row);
   const invoiceDate = fmtInvoiceDate(row.invoiceDate||row.date||new Date().toISOString().slice(0,10));
   const stateName   = resolveStateName(row.state||row.buyerState||'');
-  const metaData = [
-    ['Invoice No.',    invoiceNo,   94 ],
-    ['Invoice Date',   invoiceDate, 109],
-    ['Seller GSTIN',   SELLER.gstin,125],
-    ['Place of Supply:',stateName,  141],
-  ];
-  metaData.forEach(([label,val,y])=>{
-    t(label, 396,y,{s:7.5,f:fR,c:MID});
-    t(':',   462,y,{s:7.5,f:fR,c:MID});
+  [
+    ['Invoice No.',    invoiceNo,    94 ],
+    ['Invoice Date',   invoiceDate,  109],
+    ['Seller GSTIN',   SELLER.gstin, 125],
+    ['Place of Supply',stateName,    141],
+  ].forEach(([label,val,y])=>{
+    t(label,  396,y,{s:7.5,f:fR,c:MID});
+    t(':',    462,y,{s:7.5,f:fR,c:MID});
     t(val||'',474,y,{s:7.5,f:fB,c:DARK});
   });
 
-  // ── BILL TO SECTION ──
-  // Background cream box
-  rr(75,158,265,85,{fill:CREAM});
-  // Gold circle icon at x~80, y~170
+  // ── BILL TO ──
+  rr(75,158,265,88,{fill:CREAM_BOX});
   page.drawCircle({x:84,y:H-173,size:8,color:GOLD});
-  t('BILL TO',  96,173,{s:6.5,f:fB,c:GOLD});
-  t(row.customerName||'', 87,185,{s:9,f:fB,c:DARK});
+  t('BILL TO',    96,173,{s:6.5,f:fB,c:GOLD});
+  t(row.customerName||'',87,185,{s:9,f:fB,c:DARK_BRN});
 
-  // Address — build from raw fields
-  const ra  = row.raw?.consignee||row.raw?.shipping_address||row.raw?.buyerAddress||{};
-  const a1  = ra.address_line_1||ra.address1||ra.line1||row.address1||'';
-  const a2  = ra.address_line_2||ra.address2||ra.line2||row.address2||'';
-  const city= ra.city||row.city||'';
-  const st  = resolveStateName(ra.state||row.state||'');
-  const pin = ra.pincode||ra.zip||row.pincode||'';
-  const phone=row.customerPhone||ra.phone||ra.mobile||'';
+  const ra   = row.raw?.consignee||row.raw?.shipping_address||row.raw?.buyerAddress||{};
+  const a1   = ra.address_line_1||ra.address1||ra.line1||row.address1||'';
+  const a2   = ra.address_line_2||ra.address2||ra.line2||row.address2||'';
+  const city = ra.city||row.city||'';
+  const st   = resolveStateName(ra.state||row.state||'');
+  const pin  = ra.pincode||ra.zip||row.pincode||'';
+  const phone= row.customerPhone||ra.phone||ra.mobile||'';
 
   const addrLines=[];
   if(a1) addrLines.push(a1);
   if(a2) addrLines.push(a2);
   const cl=[city,st,pin].filter(Boolean).join(' ');
   if(cl) addrLines.push(cl);
+  if(addrLines.length===0&&(st||pin)) addrLines.push([st,pin].filter(Boolean).join(' '));
 
   addrLines.slice(0,3).forEach((l,i)=>t(l,88,205+i*12,{s:7.5,f:fR,c:DARK,w:240}));
-  const ctY=205+Math.min(addrLines.length,3)*12+2;
-  t('State: '+st+'   Contact: '+phone, 88,ctY,{s:7,f:fR,c:MID});
+  const ctY=205+Math.min(addrLines.length,3)*12+3;
+  t('State: '+st+'   Contact: '+phone,88,ctY,{s:7,f:fR,c:MID});
 
-  // ── THANK YOU (cursive right side) ──
-  // In original: "Thank" x=322 y=199, "you" x=376 y=203, "for" x=412, "your" x=439, "business!" x=478
-  // Render as one italic string spanning ~x=322
-  t('Thank',   322,205,{s:20,f:fBI,c:GOLD});
-  t('you',     376,209,{s:16,f:fBI,c:GOLD});
-  t('for your',412,205,{s:18,f:fBI,c:GOLD});
-  t('business!',439,215,{s:17,f:fBI,c:GOLD});
+  // ── THANK YOU ──
+  t('Thank',   322,199,{s:20,f:fBI,c:GOLD});
+  t('you',     376,203,{s:16,f:fBI,c:GOLD});
+  t('for',     412,199,{s:18,f:fBI,c:GOLD});
+  t('your',    439,197,{s:17,f:fBI,c:GOLD});
+  t('business!',478,193,{s:16,f:fBI,c:GOLD});
 
   // ── ITEMS TABLE ──
-  // Header row y=271 (text), background ~y=260
-  rr(38,258,520,22,{fill:NAVY});
-  // Col headers — exact positions from InvoLens
+  // Gold header row
+  rr(38,258,520,24,{fill:GOLD});
   t('NO.',        53,271,{s:7,f:fB,c:WHITE});
   t('DESCRIPTION',85,271,{s:7,f:fB,c:WHITE});
   t('QTY',       316,271,{s:7,f:fB,c:WHITE});
@@ -7827,7 +7843,6 @@ async function generateInvoicePdf(row){
   t('TAXABLE',   431,271,{s:7,f:fB,c:WHITE});
   t('AMOUNT',    503,271,{s:7,f:fB,c:WHITE});
 
-  // Items
   const total   = Number(row.amount||0);
   const taxable = total/1.18;
   const gstAmt  = total-taxable;
@@ -7836,14 +7851,16 @@ async function generateInvoicePdf(row){
   const rawLines=row.raw?.lines||row.raw?.items||[];
   const items=rawLines.length>0?rawLines:[{
     description:row.productName||row.product||row.sku||'Product',
-    sku:row.sku||'', hsn:row.hsn||'9403',
-    qty:row.qty||1, unitPrice:total, taxable:taxable, amount:total,
+    sku:row.sku||'',hsn:row.hsn||'9403',
+    qty:row.qty||1,unitPrice:total,taxable:taxable,amount:total,
   }];
 
-  let rowY=280;
+  let rowY=282;
   items.forEach((item,idx)=>{
-    const rh=30;
-    rr(38,rowY,520,rh,{fill:idx%2===0?WHITE:CREAM,stroke:rgb(0.88,0.88,0.88),bw:0.3});
+    const rh=32;
+    // Alternating rows: white / cream
+    rr(38,rowY,520,rh,{fill:idx%2===0?WHITE:CREAM_BOX});
+    ln(38,rowY+rh,558,rowY+rh,{c:rgb(0.88,0.84,0.78),w:0.3});
     const desc=item.description||item.product_name||item.name||'';
     const sku=item.sku||'';
     const hsn=item.hsn||item.hsn_code||'9403';
@@ -7851,33 +7868,29 @@ async function generateInvoicePdf(row){
     const up=Number(item.unitPrice||item.unit_price||item.price||total);
     const tax=Number(item.taxable||item.taxable_amount||(up/1.18));
     const amt=Number(item.amount||item.total||up);
-
-    // Exact col positions from InvoLens item row
-    t(String(idx+1), 60,rowY+12,{s:8,f:fR,c:DARK});
-    t(desc,          85,rowY+11,{s:8,f:fB,c:DARK,w:225});
-    t('SKU '+sku+' \xB7 HSN '+hsn, 85,rowY+21,{s:6.5,f:fI,c:MID});
-    t(String(qty),  323,rowY+12,{s:8,f:fR,c:DARK});
-    t(fmtAmt(up),   367,rowY+12,{s:8,f:fR,c:DARK});
-    t(fmtAmt(tax),  438,rowY+12,{s:8,f:fR,c:DARK});
-    t(fmtAmt(amt),  509,rowY+12,{s:8,f:fR,c:DARK});
+    t(String(idx+1),  60,rowY+13,{s:8,f:fR,c:DARK});
+    t(desc,           85,rowY+12,{s:8,f:fB,c:DARK_BRN,w:225});
+    t('SKU '+sku+' \xB7 HSN '+hsn,85,rowY+23,{s:6.5,f:fI,c:MID});
+    t(String(qty),   323,rowY+13,{s:8,f:fR,c:DARK});
+    t(fmtAmt(up),    367,rowY+13,{s:8,f:fR,c:DARK});
+    t(fmtAmt(tax),   438,rowY+13,{s:8,f:fR,c:DARK});
+    t(fmtAmt(amt),   509,rowY+13,{s:8,f:fR,c:DARK});
     rowY+=rh;
   });
 
   // ── PAYMENT + TOTALS ──
-  const secY=rowY+18;
+  const secY=rowY+16;
+  // Payment icon
+  rr(52,secY-1,12,10,{fill:GOLD});
+  t('PAYMENT', 69,secY+7, {s:7,f:fB,c:GOLD});
+  t('METHODS', 117,secY+7,{s:7,f:fB,c:GOLD});
+  t('100% advance before Dispatch',46,secY+20,{s:7,f:fR,c:DARK,w:240});
+  t('Bank Transfer',66,secY+32,{s:7,f:fR,c:MID});
+  t('0',131,secY+32,{s:7,f:fR,c:MID});
+  t('UPI',146,secY+32,{s:7,f:fR,c:MID});
+  t('Credit/Debit Card',191,secY+32,{s:7,f:fR,c:MID});
 
-  // Payment left — exact positions
-  t('PAYMENT',  69,secY+5, {s:7,f:fB,c:GOLD});
-  t('METHODS',  117,secY+5,{s:7,f:fB,c:GOLD});
-  // small square icon before payment
-  rr(52,secY-2,12,12,{fill:GOLD});
-  t('100% advance before Dispatch',46,secY+18,{s:7,f:fR,c:DARK});
-  t('Bank Transfer',66,secY+30,{s:7,f:fR,c:MID});
-  t('0',131,secY+30,{s:7,f:fR,c:MID});
-  t('UPI',146,secY+30,{s:7,f:fR,c:MID});
-  t('Credit/Debit Card',191,secY+30,{s:7,f:fR,c:MID});
-
-  // Totals right — exact col positions: label x=336, value x=507-514
+  // Totals right
   const gstRows=gstType==='igst'
     ?[['IGST',fmtAmt(gstAmt),514]]
     :[['CGST',fmtAmt(gstAmt/2),514],['SGST',fmtAmt(gstAmt/2),514]];
@@ -7887,57 +7900,52 @@ async function generateInvoicePdf(row){
     ['Shipping','included',507],
   ];
   totRows.forEach(([label,val,vx],i)=>{
-    t(label, 336,secY+i*16,  {s:8,f:fR,c:DARK});
-    t(val,   vx, secY+i*16,  {s:8,f:label==='Shipping'?fI:fR,c:label==='Shipping'?MID:DARK});
+    t(label,336,secY+i*16,  {s:8,f:fR,c:DARK});
+    t(val,  vx, secY+i*16,  {s:8,f:label==='Shipping'?fI:fR,c:label==='Shipping'?MID:DARK});
   });
 
-  // TOTAL DUE — exact: labels y=450, value y=447 x=482
-  const tdBaseY=secY+totRows.length*16+10;
-  // light background strip
-  rr(318,tdBaseY-4,240,20,{fill:CREAM});
-  t('TOTAL',336,tdBaseY+10,{s:9,f:fB,c:NAVY});
-  t('DUE',  373,tdBaseY+10,{s:9,f:fB,c:NAVY});
-  t(fmtAmt(total),482,tdBaseY+8,{s:13,f:fB,c:NAVY});
+  // TOTAL DUE — cream-gold background
+  const tdY=secY+totRows.length*16+10;
+  rr(318,tdY-4,242,22,{fill:CREAM_TOT});
+  t('TOTAL',336,tdY+13,{s:9,f:fB,c:DARK_BRN});
+  t('DUE',  373,tdY+13,{s:9,f:fB,c:DARK_BRN});
+  t(fmtAmt(total),482,tdY+11,{s:13,f:fB,c:DARK_BRN});
 
   // ── AMOUNT IN WORDS ──
-  const awY=tdBaseY+30;
-  rr(38,awY,520,28,{fill:CREAM});
-  t('AMOUNT IN WORDS',55,awY+9, {s:6.5,f:fB,c:GOLD});
-  t(numberToWords(Math.round(total))+' Only',58,awY+20,{s:8,f:fB,c:DARK});
+  const awY=tdY+30;
+  rr(38,awY,520,28,{fill:CREAM_BOX});
+  t('AMOUNT IN WORDS',55,awY+9,{s:6.5,f:fB,c:GOLD});
+  t(numberToWords(Math.round(total))+' Only',58,awY+20,{s:8,f:fB,c:DARK,w:480});
 
   // ── TRACKING ID ──
   const trY=awY+36;
   if(row.awb){
     const courier=(row.courier||'').toLowerCase();
     const isBD=courier.includes('blue')||courier.includes('bd')||/^[56]\d{9,}$/.test(String(row.awb));
-    t('TRACKING ID'+(isBD?' (BLUEDART)':''),56,trY+8,{s:6.5,f:fB,c:GOLD});
-    t(String(row.awb),57,trY+19,{s:8,f:fB,c:DARK});
+    rr(38,trY-2,150,24,{fill:CREAM_BOX});
+    t('TRACKING ID'+(isBD?' (BLUEDART)':''),45,trY+7,{s:6.5,f:fB,c:GOLD});
+    t(String(row.awb),45,trY+18,{s:8,f:fB,c:DARK});
   }
 
   // ── SIGNATURE ──
-  const sigY=trY+45;
+  const sigY=trY+42;
   t('For ',422,sigY,{s:7.5,f:fR,c:DARK});
   t(SELLER.name,436,sigY,{s:7.5,f:fB,c:DARK});
-  t(SELLER.name,447,sigY+14,{s:7,f:fB,c:DARK});
-  // signature scribble placeholder line
+  t(SELLER.name,447,sigY+14,{s:7,f:fB,c:GOLD});
   ln(447,sigY+28,557,sigY+28,{c:MID,w:0.5});
   t('PARTNER',517,sigY+35,{s:7,f:fB,c:DARK});
   t('Partner', 522,sigY+46,{s:7,f:fR,c:DARK});
 
-  // ── FOOTER SCRIPT ──
+  // ── FOOTER ──
   t('We truly appreciate your business and look forward to serving you again.',163,sigY+60,{s:7,f:fI,c:MID});
   t('Thank',260,sigY+70,{s:14,f:fBI,c:GOLD});
-  t('you!',295,sigY+70,{s:14,f:fBI,c:GOLD});
+  t(' you!',289,sigY+70,{s:14,f:fBI,c:GOLD});
 
-  // ── BOTTOM STRIP + DECLARATION ──
-  rr(0,755,595.28,87,{fill:WHITE});
-  t('We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',108,755,{s:6.5,f:fR,c:DARK});
-  // Gold bottom strip
-  rr(0,801,595.28,41,{fill:GOLD});
+  // ── DECLARATION ──
+  t('We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',108,755,{s:6.5,f:fR,c:MID});
 
   return await doc.save();
 }
-
 async function generateInvoicesPdf(rows){
   const {PDFDocument}=PDFLib;
   const merged=await PDFDocument.create();
