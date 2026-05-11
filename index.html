@@ -1843,7 +1843,7 @@
               <span id="bdAuthResult" style="font-size:11.5px;color:var(--ink-3)"></span>
             </div>
             <div style="margin-top:6px;font-size:11px;color:var(--ink-3)">
-              TrackLens tries API first (JWT auth), falls back to web scrape if API fails.<br>
+              <strong>Mode:</strong> API Key + Secret set → uses JWT API first, falls back to web scrape.<br>
               Labels continue to be printed from Shypassist.
             </div>
           </div>
@@ -5388,12 +5388,10 @@ async function bluedartTrackAwbScrape(awb){
 }
 
 async function bluedartTrackAwb(awb){
-  // NOTE: Bluedart APIGEE requires a separate developer app client_id + client_secret
-  // (different from shipping LoginID/LicenceKey). Until those are received from
-  // Bluedart support, use web scrape which works reliably.
-  // To enable API: set State.settings.bluedart.useApi = true once creds are confirmed.
+  // Use API if developer portal credentials (apiKey + apiSecret) are configured.
+  // Falls back to web scrape if API fails or creds not set.
   const creds = getBluedartCreds();
-  if(creds.loginId && creds.licenceKey && State.settings.bluedart?.useApi){
+  if(creds.apiKey && creds.apiSecret){
     try{
       const result = await bluedartTrackAwbApi(awb);
       if(!result.isError) return result;
@@ -7798,7 +7796,7 @@ async function runSingleAwbTest(){
     sep();
     if(courier === 'bluedart'){
       const creds2 = getBluedartCreds();
-      log('Mode: ' + (creds2.loginId && creds2.licenceKey ? 'API (JWT) → scrape fallback' : 'Web scrape only'), '#8a8a87');
+      log('Mode: ' + (creds2.apiKey && creds2.apiSecret ? 'API (JWT) → scrape fallback' : 'Web scrape only (add API Key+Secret to enable JWT)'), '#8a8a87');
       log('Fetching…', '#8a8a87');
       const result = await bluedartTrackAwb(awb);
       log('isError: ' + result.isError + (result.isError ? ' — ' + result.errorMsg : ''), result.isError ? '#b03030' : 'var(--ink)');
