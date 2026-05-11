@@ -4712,6 +4712,38 @@ async function cargoFetch(path, opts = {}){
   let data;
   const text = await resp.text();
   try{ data = JSON.parse(text); }catch{ data = { raw: text }; }
+  // Auto-refresh on 401/403 — Cargo tokens expire after ~24h inactivity
+  if((resp.status === 401 || resp.status === 403) && !opts._retry){
+    console.warn(`[TrackLens][Cargo] Token rejected (${resp.status}) — attempting auto-refresh…`);
+    try{
+      const email    = State.settings.cargo?.email;
+      const password = State.settings.cargo?.password;
+      if(email && password){
+        const base2 = getProxyBase();
+        const authResp = await fetch(`${base2}/cargo/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        if(authResp.ok){
+          const authData = await authResp.json();
+          const newToken = authData.token || authData.data?.token || authData.access;
+          if(newToken){
+            State.settings.cargo.token = newToken;
+            persistLocal();
+            if(State.drive.connected) writeSettingsToDrive().catch(()=>{});
+            console.log('[TrackLens][Cargo] Token refreshed — retrying');
+            toast('Cargo token auto-refreshed', 'success', 3000);
+            return cargoFetch(path, { ...opts, _retry: true });
+          }
+        }
+      }
+    } catch(e){
+      console.warn('[TrackLens][Cargo] Auto-refresh failed:', e.message);
+    }
+    toast('Cargo token expired — add email + password in Settings → Courier APIs for auto-refresh', 'error', 6000);
+  }
+
   if(!resp.ok){
     // Try a wide range of common Cargo / Django REST error shapes
     let msg = data?.detail
@@ -4749,61 +4781,28 @@ async function cargoFindShipmentByAwb(awb){
   const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
   const fmt = d => d.toISOString().slice(0, 10);
 
-  // Cargo's `waybill_no=` query param doesn't filter server-side reliably.
-  // We have to iterate through plausible status filters — orders show under
-  // ready_to_ship | pickup_scheduled | in_transit | delivered, etc.
-  // For each status, we fetch up to 100 rows and look for our AWB locally.
-  const statusesToTry = [
-    'ready_to_ship', 'pickup_scheduled', 'pickup_generated',
-    'in_transit', 'out_for_delivery', 'delivered', 'rto'
-  ];
+  // Query all shipments with waybill_no filter — no status loop needed.
+  const qs = new URLSearchParams({
+    page: '1', page_size: '10',
+    created_at_after:  fmt(yearAgo),
+    created_at_before: fmt(today),
+    waybill_no: String(awb).trim(),
+    entity: 'shipment'
+  });
+  const data = await cargoFetch('/shipment-list/?' + qs.toString());
+  const list = extractShipmentList(data);
 
-  let allTriedKeys = [];
-  let lastResponse = null;
+  const awbFields = ['waybill_no','awb','awb_code','awb_number','tracking_number','tracking_id','awb_no','waybill'];
+  const match = list.find(s => awbFields.some(f => String(s[f]||'').trim() === String(awb).trim()))
+             || (list.length === 1 ? list[0] : null); // if only one result returned, it's our shipment
 
-  for(const status of statusesToTry){
-    const qs = new URLSearchParams({
-      page: '1',
-      page_size: '100',
-      status,
-      created_at_after: fmt(yearAgo),
-      created_at_before: fmt(today),
-      waybill_no: awb,    // server may or may not honor this — we filter locally too
-      entity: 'shipment'
-    });
-    let data;
-    try{
-      data = await cargoFetch('/shipment-list/?' + qs.toString());
-    } catch(err){
-      // Cargo may reject some statuses with a validation error — try next
-      console.warn(`[TrackLens][Cargo] status=${status} rejected:`, err.message);
-      continue;
-    }
-    lastResponse = data;
-    const list = extractShipmentList(data);
-    if(list.length > 0){
-      allTriedKeys = Object.keys(data || {});
-      // Try common AWB field names — Cargo's row schema isn't documented
-      const awbFields = ['waybill_no', 'awb', 'awb_code', 'awb_number', 'tracking_number', 'tracking_id', 'awb_no', 'waybill'];
-      const match = list.find(s => {
-        return awbFields.some(f => String(s[f] || '') === String(awb));
-      });
-      if(match && match.id){
-        console.log(`[TrackLens][Cargo] AWB ${awb} found under status="${status}", shipment_id=${match.id}`);
-        return { shipmentId: match.id, raw: match, foundUnderStatus: status };
-      }
-      // Got rows but none match our AWB — log the first row's keys so we can identify the right field
-      if(list[0]){
-        console.warn(`[TrackLens][Cargo] status="${status}" returned ${list.length} rows but none matched AWB ${awb}. First row keys:`, Object.keys(list[0]), '| Sample row:', list[0]);
-      }
-    }
+  if(match && match.id){
+    console.log(`[TrackLens][Cargo] AWB ${awb} found, shipment_id=${match.id}, status=${match.status}`);
+    return { shipmentId: match.id, raw: match, foundUnderStatus: match.status || 'unknown' };
   }
 
-  // Nothing found across all statuses — diagnostic dump
-  console.warn('[TrackLens][Cargo] AWB lookup exhausted all statuses. Last response shape:',
-    lastResponse ? Object.keys(lastResponse) : '(no response)',
-    '| Sample:', lastResponse);
-  throw new Error(`No Cargo shipment found for AWB ${awb} (tried statuses: ${statusesToTry.join(', ')})`);
+  console.warn(`[TrackLens][Cargo] AWB ${awb} not found. List length: ${list.length}`, list[0] || '');
+  throw new Error(`No Cargo shipment found for AWB ${awb}`);
 }
 
 // Try every common JSON shape Cargo might return for a list endpoint.
@@ -6124,8 +6123,10 @@ async function runDispatchBatch(){
     setBatchProgress(done, queue.length, `Fetching label for ${row.awb}…`);
     try{
       const result = await cargoFetchLabelBytes(row.awb);
-      labelResults.push({ row, pdfBytes: result.bytes });
-      logBatch(`✓ ${row.awb} — label fetched (${(result.bytes.length/1024).toFixed(1)} KB)`);
+      const cleanBytes = await stripAdPages(result.bytes, row.awb);
+      const stripped = result.bytes.length !== cleanBytes.length;
+      labelResults.push({ row, pdfBytes: cleanBytes });
+      logBatch(`✓ ${row.awb} — label fetched (${(cleanBytes.length/1024).toFixed(1)} KB)${stripped ? ' · ad page stripped' : ''}`);
     } catch(err){
       logBatch(`✗ ${row.awb} — ${err.message}`, 'error');
       failed++;
@@ -6239,6 +6240,28 @@ async function cargoFetchLabelBytes(awb){
 }
 
 /* Merge an ordered list of PDF byte arrays into one PDF using pdf-lib. */
+/* Strip the last page from every Cargo label PDF.
+ * The last page is always the Shiprocket waybill/ad page — not needed for dispatch.
+ * If the PDF has only 1 page (shouldn't happen), return as-is for safety.
+ */
+async function stripAdPages(bytes, awb){
+  if(!window.PDFLib) return bytes;
+  const {PDFDocument} = PDFLib;
+  const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  const totalPages = src.getPageCount();
+  if(totalPages <= 1){
+    console.warn(`[TrackLens][Label] AWB ${awb}: only ${totalPages} page(s) — skipping strip`);
+    return bytes;
+  }
+  const keepCount = totalPages - 1;
+  const out = await PDFDocument.create();
+  const pages = await out.copyPages(src, Array.from({length: keepCount}, (_, i) => i));
+  pages.forEach(p => out.addPage(p));
+  const stripped = await out.save();
+  console.log(`[TrackLens][Label] AWB ${awb}: stripped last page (${totalPages} → ${keepCount})`);
+  return stripped;
+}
+
 async function mergePdfs(byteArrays){
   if(!window.PDFLib) throw new Error('pdf-lib not loaded');
   const out = await PDFLib.PDFDocument.create();
