@@ -1779,7 +1779,15 @@
 
           <!-- Shiprocket Cargo (heavy/B2B logistics) -->
           <div class="field-group">
-            <label>Shiprocket Cargo — API Token <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from <span class="mono">app-cargo.shiprocket.in → Settings → API Token</span>)</span></label>
+            <label>Shiprocket Cargo — Email <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(login email — used for auto token refresh)</span></label>
+            <input type="text" class="mono" id="cred-cargo-email" placeholder="your@email.com" autocomplete="off" />
+          </div>
+          <div class="field-group">
+            <label>Shiprocket Cargo — Password <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(used for auto-refresh when token expires)</span></label>
+            <input type="password" class="mono" id="cred-cargo-password" placeholder="Cargo password" autocomplete="off" />
+          </div>
+          <div class="field-group">
+            <label>Shiprocket Cargo — API Token <span style="color:var(--ink-3);text-transform:none;letter-spacing:0;font-weight:400">(from <span class="mono">app-cargo.shiprocket.in → Settings → API Token</span> — auto-refreshed on expiry)</span></label>
             <input type="password" class="mono" id="cred-cargo-token" placeholder="40-character hex token" data-cred="cargo.token" />
           </div>
 
@@ -2172,7 +2180,7 @@ const State = {
   filter: 'all',
   search: '',
   settings: {
-    cargo: { token: '', refresh: '' },        // Shiprocket Cargo (active in v1.1.1)
+    cargo: { email: '', password: '', token: '', refresh: '' }, // Shiprocket Cargo
     shiprocket: { email: '', password: '' },  // Shiprocket Quick (deferred)
     delhivery: { token: '' },
     bluedart: { license: '', customer: '' },
@@ -5006,6 +5014,8 @@ async function testCargoConnection(){
   btn.textContent = 'Testing...';
   try{
     await proxyHealthCheck();
+    if($('#cred-cargo-email')?.value?.trim()) State.settings.cargo.email = $('#cred-cargo-email').value.trim();
+    if($('#cred-cargo-password')?.value?.trim()) State.settings.cargo.password = $('#cred-cargo-password').value.trim();
     if($('#cred-cargo-token').value) State.settings.cargo.token = $('#cred-cargo-token').value;
     if($('#cred-cargo-refresh').value) State.settings.cargo.refresh = $('#cred-cargo-refresh').value;
     persistLocal();
@@ -6767,6 +6777,8 @@ function bindSettings(){
 
 function saveSettingsSection(section){
   if(section === 'couriers'){
+    if($('#cred-cargo-email')?.value?.trim()) State.settings.cargo.email = $('#cred-cargo-email').value.trim();
+    if($('#cred-cargo-password')?.value?.trim()) State.settings.cargo.password = $('#cred-cargo-password').value.trim();
     State.settings.cargo.token = $('#cred-cargo-token').value || State.settings.cargo.token;
     State.settings.cargo.refresh = $('#cred-cargo-refresh').value || State.settings.cargo.refresh;
     State.settings.shiprocket.email = $('#cred-sr-email').value || State.settings.shiprocket.email;
@@ -6824,7 +6836,9 @@ function saveSettingsSection(section){
 function applySettingsToInputs(){
   // Mask credentials in the UI: show empty placeholders if value is set
   const map = [
-    ['cred-cargo-token', State.settings.cargo?.token, true],
+    ['cred-cargo-email',    State.settings.cargo?.email,    false],
+    ['cred-cargo-password', State.settings.cargo?.password, true],
+    ['cred-cargo-token',    State.settings.cargo?.token,    true],
     ['cred-cargo-refresh', State.settings.cargo?.refresh, true],
     ['cred-sr-email', State.settings.shiprocket.email, false],
     ['cred-sr-password', State.settings.shiprocket.password, true],
