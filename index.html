@@ -9,7 +9,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js">
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js">
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <style>
   :root{
     --bg: #fafaf7;
@@ -7785,60 +7787,61 @@ async function runSingleAwbTest(){
 }
 
 /* ============================================================
- * TrackLens Invoice Generator v3 — pixel-perfect match to InvoLens
- * All coordinates measured from actual InvoLens PDF output.
+ * TrackLens Invoice Generator v4
+ * Uses html2canvas + jsPDF — exact same pipeline as InvoLens.
+ * HTML template mirrors InvoLens renderPrintHTML exactly.
  * ============================================================ */
 
-const SELLER = {
-  name:  'SABI WABI INNOVATIONS LLP',
-  addr1: 'Hissa No 1 B, Survey No.72, Rayate,',
-  addr2: 'Kalyan-murbad Road, Thane,',
-  addr3: 'MAHARASHTRA, 421301',
-  gstin: '27AFNFS2007K1ZR',
+const SELLER_INFO = {
+  company:  'SABI WABI INNOVATIONS LLP',
+  addr1:    'Hissa No 1 B, Survey No.72, Rayate,',
+  addr2:    'Kalyan-murbad Road, Thane,',
+  addr3:    'MAHARASHTRA, 421301',
+  gstin:    '27AFNFS2007K1ZR',
+  state:    'MH',
+  currency: '₹',
+  payment:  '100% advance before Dispatch',
+  declaration: 'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
+  signatory: 'Partner',
 };
 
-const STATE_CODES = {
-  'AN':'Andaman & Nicobar','AP':'Andhra Pradesh','AR':'Arunachal Pradesh',
-  'AS':'Assam','BR':'Bihar','CH':'Chandigarh','CG':'Chhattisgarh',
-  'DD':'Daman & Diu','DL':'Delhi','DN':'Dadra & Nagar Haveli',
-  'GA':'Goa','GJ':'Gujarat','HP':'Himachal Pradesh','HR':'Haryana',
-  'JH':'Jharkhand','JK':'Jammu & Kashmir','KA':'Karnataka','KL':'Kerala',
-  'LA':'Ladakh','LD':'Lakshadweep','MH':'Maharashtra','ML':'Meghalaya',
-  'MN':'Manipur','MP':'Madhya Pradesh','MZ':'Mizoram','NL':'Nagaland',
-  'OR':'Odisha','PB':'Punjab','PY':'Puducherry','RJ':'Rajasthan',
-  'SK':'Sikkim','TG':'Telangana','TN':'Tamil Nadu','TR':'Tripura',
-  'UP':'Uttar Pradesh','UT':'Uttarakhand','WB':'West Bengal'
+const INDIAN_STATE_NAMES = {
+  'AN':'Andaman & Nicobar Islands','AP':'Andhra Pradesh','AR':'Arunachal Pradesh',
+  'AS':'Assam','BR':'Bihar','CH':'Chandigarh','CT':'Chhattisgarh',
+  'DN':'Dadra & Nagar Haveli and Daman & Diu','DL':'Delhi','GA':'Goa','GJ':'Gujarat',
+  'HR':'Haryana','HP':'Himachal Pradesh','JK':'Jammu & Kashmir','JH':'Jharkhand',
+  'KA':'Karnataka','KL':'Kerala','LA':'Ladakh','LD':'Lakshadweep',
+  'MP':'Madhya Pradesh','MH':'Maharashtra','MN':'Manipur','ML':'Meghalaya',
+  'MZ':'Mizoram','NL':'Nagaland','OD':'Odisha','PY':'Puducherry','PB':'Punjab',
+  'RJ':'Rajasthan','SK':'Sikkim','TN':'Tamil Nadu','TG':'Telangana','TR':'Tripura',
+  'UP':'Uttar Pradesh','UT':'Uttarakhand','WB':'West Bengal',
 };
 
-function resolveStateName(v){
-  if(!v) return '';
-  v = v.trim();
-  if(v.length > 3 && !/^[A-Z]{2,3}$/.test(v)) return v;
-  return STATE_CODES[v.toUpperCase()] || v;
+function getStateName(code){
+  if(!code) return '';
+  if(code.length > 3) return code; // already a name
+  return INDIAN_STATE_NAMES[code.toUpperCase()] || code;
 }
 
-function fmtInvoiceDate(d){
+function invoiceFmtDate(d){
   if(!d) return '';
-  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if(m) return new Date(d).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'});
-  return d;
+  const dt = new Date(d);
+  if(isNaN(dt)) return d;
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`;
 }
 
-function extractInvoiceNo(row){
-  if(row.invoiceNo && /^\d+$/.test(String(row.invoiceNo).trim())) return String(row.invoiceNo).trim();
-  const id = String(row.id || row.invoiceNo || '');
-  const parts = id.split('_');
-  const last = parts[parts.length-1];
-  if(last && /^\d+$/.test(last)) return last;
-  return row.orderId || id;
-}
-
-function numberToWords(n){
+function invoiceNumberToWords(n){
+  n = Math.round(n);
+  if(n===0) return 'Zero';
   const o=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven',
            'Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
   const t=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
-  if(n===0) return 'Zero';
-  function b(x){ return x<20?o[x]:x<100?t[Math.floor(x/10)]+(x%10?' '+o[x%10]:''):o[Math.floor(x/100)]+' Hundred'+(x%100?' '+b(x%100):''); }
+  function b(x){
+    if(x<20) return o[x];
+    if(x<100) return t[Math.floor(x/10)]+(x%10?' '+o[x%10]:'');
+    return o[Math.floor(x/100)]+' Hundred'+(x%100?' '+b(x%100):'');
+  }
   let r='';
   const cr=Math.floor(n/10000000); n%=10000000;
   const la=Math.floor(n/100000);   n%=100000;
@@ -7850,252 +7853,305 @@ function numberToWords(n){
   return r.trim();
 }
 
-function fmtAmt(n){ return Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function getGstType(s){ const v=(s||'').toLowerCase().trim(); return (v==='maharashtra'||v==='mh'||v==='27')?'cgst_sgst':'igst'; }
-
-/* Draw ₹ symbol using pdf-lib primitives (Helvetica doesn't support Unicode).
- * Draws at (x, y_from_top) with given size. Matches InvoLens appearance.
- */
-function drawRupee(page, x, yTop, size, color, H){
-  const s = size;
-  const y = H - yTop;
-  // R shape: vertical stroke + two horizontal bars
-  const sw = s * 0.08;
-  // Vertical bar
-  page.drawLine({start:{x:x,y:y}, end:{x:x,y:y-s*0.85}, thickness:sw, color});
-  // Top horizontal bar
-  page.drawLine({start:{x:x,y:y-s*0.1}, end:{x:x+s*0.45,y:y-s*0.1}, thickness:sw, color});
-  // Middle horizontal bar (the rupee's crossbar)
-  page.drawLine({start:{x:x,y:y-s*0.38}, end:{x:x+s*0.45,y:y-s*0.38}, thickness:sw, color});
-  // Diagonal stroke from middle bar to bottom right
-  page.drawLine({start:{x:x+s*0.05,y:y-s*0.38}, end:{x:x+s*0.45,y:y-s*0.85}, thickness:sw*0.9, color});
-  // Small arc suggestion for R top-right (two lines)
-  page.drawLine({start:{x:x+s*0.45,y:y-s*0.1}, end:{x:x+s*0.48,y:y-s*0.24}, thickness:sw*0.7, color});
-  page.drawLine({start:{x:x+s*0.48,y:y-s*0.24}, end:{x:x+s*0.45,y:y-s*0.38}, thickness:sw*0.7, color});
+function invoiceFmt(n){
+  return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 
-async function generateInvoicePdf(row){
-  const {PDFDocument,rgb}=PDFLib;
+function escapeInvoiceHtml(s){
+  if(s==null) return '';
+  return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
-  // Exact colors sampled from InvoLens PDF
-  const CREAM_BG  = rgb(0.988,0.984,0.969);  // page background rgb(252,251,247)
-  const CREAM_BOX = rgb(0.980,0.922,0.820);   // bill-to box rgb(249,235,209)
-  const CREAM_TOT = rgb(0.984,0.906,0.761);   // total due bg rgb(251,231,194)
-  const GOLD      = rgb(0.784,0.580,0.282);   // table header / accents rgb(200,148,72)
-  const DARK_BRN  = rgb(0.239,0.157,0.090);   // INVOICE title / dark text rgb(61,40,23)
-  const DARK      = rgb(0.200,0.180,0.160);   // body text
-  const MID       = rgb(0.500,0.460,0.420);   // secondary text
-  const WHITE     = rgb(1,1,1);               // table header text
+/* Build the invoice HTML — exact copy of InvoLens renderPrintHTML structure */
+function buildInvoiceHtml(row){
+  const total     = Number(row.amount||0);
+  const taxable   = +(total/1.18).toFixed(2);
+  const gstAmt    = +(total - taxable).toFixed(2);
+  const stateCode = row.state||row.buyerState||'';
+  const isInter   = stateCode && stateCode.toUpperCase() !== SELLER_INFO.state;
+  const igst      = isInter ? gstAmt : 0;
+  const cgst      = isInter ? 0 : +(gstAmt/2).toFixed(2);
+  const sgst      = isInter ? 0 : +(gstAmt - cgst).toFixed(2);
+  const stateNameVal = getStateName(stateCode);
 
-  const doc  = await PDFDocument.create();
-  const page = doc.addPage([595.28,841.89]);
-  const H    = 841.89;
+  // Invoice number — extract numeric suffix
+  const invNo = (()=>{
+    if(row.invoiceNo && /^\d+$/.test(String(row.invoiceNo).trim())) return String(row.invoiceNo).trim();
+    const id = String(row.id||row.invoiceNo||'');
+    const parts = id.split('_');
+    const last = parts[parts.length-1];
+    if(last && /^\d+$/.test(last)) return last;
+    return row.orderId||id;
+  })();
 
-  // Fill entire page with cream background
-  page.drawRectangle({x:0,y:0,width:595.28,height:841.89,color:CREAM_BG});
+  // Date
+  const invDate = invoiceFmtDate(row.invoiceDate||row.date||new Date().toISOString().slice(0,10));
 
-  const fB  = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
-  const fR  = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
-  const fI  = await doc.embedFont(PDFLib.StandardFonts.HelveticaOblique);
-  const fBI = await doc.embedFont(PDFLib.StandardFonts.HelveticaBoldOblique);
-
-  const t=(tx,x,yT,o={})=>{
-    if(tx===null||tx===undefined||tx==='') return;
-    page.drawText(String(tx),{x,y:H-yT,size:o.s||8,font:o.f||fR,color:o.c||DARK,maxWidth:o.w,lineHeight:o.lh||11});
-  };
-  const rr=(x,yT,w,h2,o={})=>page.drawRectangle({x,y:H-yT-h2,width:w,height:h2,color:o.fill,borderColor:o.stroke,borderWidth:o.bw||0});
-  const ln=(x1,y1,x2,y2,o={})=>page.drawLine({start:{x:x1,y:H-y1},end:{x:x2,y:H-y2},thickness:o.w||0.5,color:o.c||MID});
-
-  // ── BRAND ──
-  t('Honey',46,46,{s:21,f:fB,c:DARK_BRN});
-  t('Touch',118,43,{s:23,f:fBI,c:GOLD});
-
-  // Small gold circle (pin icon) before seller name
-  page.drawCircle({x:228,y:H-47,size:5,color:GOLD});
-
-  // ── SELLER ──
-  t(SELLER.name, 235,47,{s:7.5,f:fB,c:DARK,w:140});
-  t(SELLER.addr1,235,60,{s:7,f:fR,c:MID,w:140});
-  t(SELLER.addr2,235,70,{s:7,f:fR,c:MID,w:140});
-  t(SELLER.addr3,235,80,{s:7,f:fR,c:MID,w:140});
-
-  // ── INVOICE title ──
-  t('INVOICE',384,62,{s:30,f:fB,c:DARK_BRN});
-  // Gold underline
-  rr(384,66,170,3,{fill:GOLD});
-
-  // ── META BOX ──
-  const invoiceNo   = extractInvoiceNo(row);
-  const invoiceDate = fmtInvoiceDate(row.invoiceDate||row.date||new Date().toISOString().slice(0,10));
-  const stateName   = resolveStateName(row.state||row.buyerState||'');
-  [
-    ['Invoice No.',    invoiceNo,    94 ],
-    ['Invoice Date',   invoiceDate,  109],
-    ['Seller GSTIN',   SELLER.gstin, 125],
-    ['Place of Supply',stateName,    141],
-  ].forEach(([label,val,y])=>{
-    t(label,  396,y,{s:7.5,f:fR,c:MID});
-    t(':',    462,y,{s:7.5,f:fR,c:MID});
-    t(val||'',474,y,{s:7.5,f:fB,c:DARK});
-  });
-
-  // ── BILL TO ──
-  rr(75,158,265,88,{fill:CREAM_BOX});
-  page.drawCircle({x:84,y:H-173,size:8,color:GOLD});
-  t('BILL TO',    96,173,{s:6.5,f:fB,c:GOLD});
-  t(row.customerName||'',87,185,{s:9,f:fB,c:DARK_BRN});
-
-  const ra   = row.raw?.consignee||row.raw?.shipping_address||row.raw?.buyerAddress||{};
-  const a1   = ra.address_line_1||ra.address1||ra.line1||row.address1||'';
-  const a2   = ra.address_line_2||ra.address2||ra.line2||row.address2||'';
+  // Address lines
+  const ra = row.raw?.consignee||row.raw?.shipping_address||{};
+  const a1 = ra.address_line_1||ra.address1||row.address1||'';
+  const a2 = ra.address_line_2||ra.address2||row.address2||'';
   const city = ra.city||row.city||'';
-  const st   = resolveStateName(ra.state||row.state||'');
   const pin  = ra.pincode||ra.zip||row.pincode||'';
   const phone= row.customerPhone||ra.phone||ra.mobile||'';
+  const addrLine = [a1,a2,[city,stateNameVal,pin].filter(Boolean).join(' ')].filter(Boolean).join(', ');
 
-  const addrLines=[];
-  if(a1) addrLines.push(a1);
-  if(a2) addrLines.push(a2);
-  const cl=[city,st,pin].filter(Boolean).join(' ');
-  if(cl) addrLines.push(cl);
-  if(addrLines.length===0&&(st||pin)) addrLines.push([st,pin].filter(Boolean).join(' '));
-
-  addrLines.slice(0,3).forEach((l,i)=>t(l,88,205+i*12,{s:7.5,f:fR,c:DARK,w:240}));
-  const ctY=205+Math.min(addrLines.length,3)*12+3;
-  t('State: '+st+'   Contact: '+phone,88,ctY,{s:7,f:fR,c:MID});
-
-  // ── THANK YOU ──
-  t('Thank',   322,199,{s:20,f:fBI,c:GOLD});
-  t('you',     376,203,{s:16,f:fBI,c:GOLD});
-  t('for',     412,199,{s:18,f:fBI,c:GOLD});
-  t('your',    439,197,{s:17,f:fBI,c:GOLD});
-  t('business!',478,193,{s:16,f:fBI,c:GOLD});
-
-  // ── ITEMS TABLE ──
-  // Gold header row
-  rr(38,258,520,24,{fill:GOLD});
-  t('NO.',        53,271,{s:7,f:fB,c:WHITE});
-  t('DESCRIPTION',85,271,{s:7,f:fB,c:WHITE});
-  t('QTY',       316,271,{s:7,f:fB,c:WHITE});
-  t('UNIT',      379,271,{s:7,f:fB,c:WHITE});
-  t('PRICE',     374,282,{s:7,f:fB,c:WHITE});
-  t('TAXABLE',   431,271,{s:7,f:fB,c:WHITE});
-  t('AMOUNT',    503,271,{s:7,f:fB,c:WHITE});
-
-  const total   = Number(row.amount||0);
-  const taxable = total/1.18;
-  const gstAmt  = total-taxable;
-  const gstType = getGstType(row.state||row.buyerState||'');
-
-  const rawLines=row.raw?.lines||row.raw?.items||[];
-  const items=rawLines.length>0?rawLines:[{
-    description:row.productName||row.product||row.sku||'Product',
-    sku:row.sku||'',hsn:row.hsn||'9403',
-    qty:row.qty||1,unitPrice:total,taxable:taxable,amount:total,
+  // Line items
+  const rawLines = row.raw?.lines||row.raw?.items||[];
+  const items = rawLines.length>0 ? rawLines : [{
+    sr:1, sku:row.sku||'', product_name:row.productName||row.product||row.sku||'Product',
+    hsn:row.hsn||'9403', gst_rate:18, qty:row.qty||1,
+    unit_inclusive:total, unit_taxable:taxable, total_inclusive:total, taxable, gst_amount:gstAmt
   }];
 
-  let rowY=282;
-  items.forEach((item,idx)=>{
-    const rh=32;
-    // Alternating rows: white / cream
-    rr(38,rowY,520,rh,{fill:idx%2===0?WHITE:CREAM_BOX});
-    ln(38,rowY+rh,558,rowY+rh,{c:rgb(0.88,0.84,0.78),w:0.3});
-    const desc=item.description||item.product_name||item.name||'';
-    const sku=item.sku||'';
-    const hsn=item.hsn||item.hsn_code||'9403';
-    const qty=item.qty||item.quantity||1;
-    const up=Number(item.unitPrice||item.unit_price||item.price||total);
-    const tax=Number(item.taxable||item.taxable_amount||(up/1.18));
-    const amt=Number(item.amount||item.total||up);
-    t(String(idx+1),  60,rowY+13,{s:8,f:fR,c:DARK});
-    t(desc,           85,rowY+12,{s:8,f:fB,c:DARK_BRN,w:225});
-    t('SKU '+sku+' \xB7 HSN '+hsn,85,rowY+23,{s:6.5,f:fI,c:MID});
-    t(String(qty),   323,rowY+13,{s:8,f:fR,c:DARK});
-    t(fmtAmt(up),    367,rowY+13,{s:8,f:fR,c:DARK});
-    t(fmtAmt(tax),   438,rowY+13,{s:8,f:fR,c:DARK});
-    t(fmtAmt(amt),   509,rowY+13,{s:8,f:fR,c:DARK});
-    rowY+=rh;
-  });
+  const itemRows = items.map((L,i)=>`
+    <tr>
+      <td style="text-align:center;padding:11px 10px;font-size:11px;color:#3d2817;border-right:1px solid #e3cfa6;border-bottom:1px solid #e3cfa6;">${i+1}</td>
+      <td style="padding:11px 10px;font-size:11px;color:#3d2817;border-right:1px solid #e3cfa6;border-bottom:1px solid #e3cfa6;">
+        <div style="font-weight:600;color:#3d2817;line-height:1.4;">${escapeInvoiceHtml(L.product_name||L.description||L.name||'')}</div>
+        <div style="font-style:italic;font-size:10px;color:#8a6f55;margin-top:2px;">SKU ${escapeInvoiceHtml(L.sku||'')} · HSN ${escapeInvoiceHtml(L.hsn||'9403')}</div>
+      </td>
+      <td style="text-align:center;padding:11px 10px;font-size:11px;color:#3d2817;border-right:1px solid #e3cfa6;border-bottom:1px solid #e3cfa6;">${L.qty||1}</td>
+      <td style="text-align:right;padding:11px 10px;font-size:11px;color:#3d2817;font-variant-numeric:tabular-nums;border-right:1px solid #e3cfa6;border-bottom:1px solid #e3cfa6;">${invoiceFmt(L.unit_inclusive||L.unit_price||total)}</td>
+      <td style="text-align:right;padding:11px 10px;font-size:11px;color:#3d2817;font-variant-numeric:tabular-nums;border-right:1px solid #e3cfa6;border-bottom:1px solid #e3cfa6;">${invoiceFmt(L.taxable||L.taxable_amount||taxable)}</td>
+      <td style="text-align:right;padding:11px 10px;font-size:11px;color:#3d2817;font-variant-numeric:tabular-nums;border-bottom:1px solid #e3cfa6;">${invoiceFmt(L.total_inclusive||L.amount||total)}</td>
+    </tr>`).join('');
 
-  // ── PAYMENT + TOTALS ──
-  const secY=rowY+16;
-  // Payment icon
-  rr(52,secY-1,12,10,{fill:GOLD});
-  t('PAYMENT', 69,secY+7, {s:7,f:fB,c:GOLD});
-  t('METHODS', 117,secY+7,{s:7,f:fB,c:GOLD});
-  t('100% advance before Dispatch',46,secY+20,{s:7,f:fR,c:DARK,w:240});
-  t('Bank Transfer',66,secY+32,{s:7,f:fR,c:MID});
-  t('0',131,secY+32,{s:7,f:fR,c:MID});
-  t('UPI',146,secY+32,{s:7,f:fR,c:MID});
-  t('Credit/Debit Card',191,secY+32,{s:7,f:fR,c:MID});
+  const taxLines = isInter
+    ? `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 14px;border-bottom:1px solid #f3e6cc;font-size:11px;"><span style="color:#6b5340;">IGST</span><span style="font-variant-numeric:tabular-nums;color:#3d2817;font-weight:500;">${invoiceFmt(igst)}</span></div>`
+    : `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 14px;border-bottom:1px solid #f3e6cc;font-size:11px;"><span style="color:#6b5340;">CGST</span><span style="font-variant-numeric:tabular-nums;color:#3d2817;font-weight:500;">${invoiceFmt(cgst)}</span></div>
+       <div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 14px;border-bottom:1px solid #f3e6cc;font-size:11px;"><span style="color:#6b5340;">SGST</span><span style="font-variant-numeric:tabular-nums;color:#3d2817;font-weight:500;">${invoiceFmt(sgst)}</span></div>`;
 
-  // Totals right
-  const gstRows=gstType==='igst'
-    ?[['IGST',fmtAmt(gstAmt),514]]
-    :[['CGST',fmtAmt(gstAmt/2),514],['SGST',fmtAmt(gstAmt/2),514]];
-  const totRows=[
-    ['Taxable Value',fmtAmt(taxable),507],
-    ...gstRows,
-    ['Shipping','included',507],
-  ];
-  totRows.forEach(([label,val,vx],i)=>{
-    t(label,336,secY+i*16,  {s:8,f:fR,c:DARK});
-    t(val,  vx, secY+i*16,  {s:8,f:label==='Shipping'?fI:fR,c:label==='Shipping'?MID:DARK});
-  });
+  const awbLabel = (()=>{
+    const c=(row.courier||'').toLowerCase();
+    if(c.includes('blue')||c.includes('bd')||/^[56]\d{9,}$/.test(String(row.awb||''))) return 'TRACKING ID (BLUEDART)';
+    return 'TRACKING ID';
+  })();
 
-  // TOTAL DUE — cream-gold background
-  const tdY=secY+totRows.length*16+10;
-  rr(318,tdY-4,242,22,{fill:CREAM_TOT});
-  t('TOTAL',336,tdY+13,{s:9,f:fB,c:DARK_BRN});
-  t('DUE',  373,tdY+13,{s:9,f:fB,c:DARK_BRN});
-  t(fmtAmt(total),482,tdY+11,{s:13,f:fB,c:DARK_BRN});
+  const honeycombSVG = `
+    <svg style="position:absolute;top:14mm;right:14mm;width:110px;height:110px;pointer-events:none;opacity:0.55;" viewBox="0 0 110 110">
+      ${[[55,18],[82,18],[27,38],[55,38],[82,38],[27,58],[55,58],[82,58]].map(([cx,cy])=>`
+        <polygon points="${cx},${cy-12} ${cx+10},${cy-6} ${cx+10},${cy+6} ${cx},${cy+12} ${cx-10},${cy+6} ${cx-10},${cy-6}"
+                 fill="none" stroke="#c89548" stroke-width="1.4"/>`).join('')}
+    </svg>
+    <svg style="position:absolute;bottom:14mm;right:14mm;width:110px;height:110px;pointer-events:none;opacity:0.55;" viewBox="0 0 110 110">
+      ${[[27,52],[55,52],[82,52],[27,72],[55,72],[82,72],[27,92],[55,92]].map(([cx,cy])=>`
+        <polygon points="${cx},${cy-12} ${cx+10},${cy-6} ${cx+10},${cy+6} ${cx},${cy+12} ${cx-10},${cy+6} ${cx-10},${cy-6}"
+                 fill="none" stroke="#c89548" stroke-width="1.4"/>`).join('')}
+    </svg>
+    <svg style="position:absolute;bottom:14mm;left:16mm;width:60px;height:60px;pointer-events:none;" viewBox="0 0 60 60">
+      <polygon points="30,4 52,16 52,44 30,56 8,44 8,16" fill="none" stroke="#c89548" stroke-width="1.6"/>
+      <ellipse cx="30" cy="32" rx="9" ry="6" fill="#c89548"/>
+      <line x1="22" y1="29" x2="38" y2="29" stroke="#fdfbf7" stroke-width="1.2"/>
+      <line x1="22" y1="34" x2="38" y2="34" stroke="#fdfbf7" stroke-width="1.2"/>
+      <ellipse cx="22" cy="27" rx="5" ry="3" fill="#fdfbf7" opacity="0.85"/>
+      <ellipse cx="38" cy="27" rx="5" ry="3" fill="#fdfbf7" opacity="0.85"/>
+    </svg>`;
 
-  // ── AMOUNT IN WORDS ──
-  const awY=tdY+30;
-  rr(38,awY,520,28,{fill:CREAM_BOX});
-  t('AMOUNT IN WORDS',55,awY+9,{s:6.5,f:fB,c:GOLD});
-  t(numberToWords(Math.round(total))+' Only',58,awY+20,{s:8,f:fB,c:DARK,w:480});
+  return `
+    <div style="width:210mm;min-height:297mm;padding:0;margin:0 auto;background:#fdfbf7;box-sizing:border-box;position:relative;color:#3d2817;overflow:hidden;font-family:'Inter',-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;-webkit-font-smoothing:antialiased;">
+      ${honeycombSVG}
+      <div style="position:relative;padding:14mm 16mm 14mm;z-index:1;">
 
-  // ── TRACKING ID ──
-  const trY=awY+36;
-  if(row.awb){
-    const courier=(row.courier||'').toLowerCase();
-    const isBD=courier.includes('blue')||courier.includes('bd')||/^[56]\d{9,}$/.test(String(row.awb));
-    rr(38,trY-2,150,24,{fill:CREAM_BOX});
-    t('TRACKING ID'+(isBD?' (BLUEDART)':''),45,trY+7,{s:6.5,f:fB,c:GOLD});
-    t(String(row.awb),45,trY+18,{s:8,f:fB,c:DARK});
+        <!-- Header: brand | contact | invoice -->
+        <div style="display:grid;grid-template-columns:1.05fr 1fr 1.1fr;gap:14px;align-items:flex-start;margin-bottom:14px;">
+          <!-- Brand -->
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <div style="font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:32px;color:#b88838;line-height:1;letter-spacing:-0.02em;">Honey Touch</div>
+          </div>
+          <!-- Contact -->
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:10.5px;color:#3d2817;padding-top:4px;">
+            <div style="display:flex;align-items:flex-start;gap:8px;">
+              <div style="width:18px;height:18px;border-radius:50%;background:#f3e6cc;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;color:#b88838;font-size:10px;">⌖</div>
+              <div style="line-height:1.4;"><strong style="display:block;font-weight:600;color:#3d2817;margin-bottom:1px;font-size:11px;">${SELLER_INFO.company}</strong>${SELLER_INFO.addr1}<br>${SELLER_INFO.addr2}<br>${SELLER_INFO.addr3}</div>
+            </div>
+          </div>
+          <!-- Invoice word + meta -->
+          <div style="text-align:right;">
+            <div style="font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:56px;color:#3d2817;line-height:0.9;letter-spacing:-0.04em;">INVOICE</div>
+            <div style="height:2px;width:110px;background:#b88838;margin:6px 0 6px auto;position:relative;">
+              <div style="content:'';position:absolute;width:8px;height:8px;background:#b88838;border-radius:50%;top:-3px;right:-4px;"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:auto 8px auto;gap:4px 8px;font-size:11px;text-align:left;justify-content:end;margin-left:auto;margin-top:8px;">
+              <div style="color:#6b5340;font-weight:500;">Invoice No.</div><div style="color:#b88838;">:</div><div style="color:#3d2817;font-weight:600;">${escapeInvoiceHtml(invNo)}</div>
+              <div style="color:#6b5340;font-weight:500;">Invoice Date</div><div style="color:#b88838;">:</div><div style="color:#3d2817;font-weight:600;">${invDate}</div>
+              <div style="color:#6b5340;font-weight:500;">Seller GSTIN</div><div style="color:#b88838;">:</div><div style="color:#3d2817;font-weight:600;">${SELLER_INFO.gstin}</div>
+              <div style="color:#6b5340;font-weight:500;">Place of Supply</div><div style="color:#b88838;">:</div><div style="color:#3d2817;font-weight:600;">${escapeInvoiceHtml(stateNameVal)}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bill To + Thank you -->
+        <div style="display:grid;grid-template-columns:1.05fr 1fr;gap:18px;align-items:stretch;margin:8px 0 14px;">
+          <div style="background:linear-gradient(135deg,#fbf1de 0%,#f5e2bd 100%);border-radius:12px;padding:14px 18px;position:relative;">
+            <div style="position:absolute;top:14px;left:14px;width:28px;height:28px;border-radius:50%;background:#b88838;color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;">👤</div>
+            <div style="margin-left:38px;">
+              <div style="font-size:9px;color:#b88838;letter-spacing:0.18em;font-weight:700;margin-bottom:2px;">BILL TO</div>
+              <div style="font-size:14px;font-weight:700;color:#3d2817;margin-bottom:5px;">${escapeInvoiceHtml(row.customerName||'')}</div>
+              <div style="font-size:10.5px;color:#3d2817;line-height:1.45;">${escapeInvoiceHtml(addrLine)}</div>
+              <div style="font-size:10.5px;color:#3d2817;margin-top:4px;"><span style="color:#8a6f55;font-weight:500;">State:</span> ${escapeInvoiceHtml(stateNameVal)}${phone?'&nbsp;&nbsp;<span style="color:#8a6f55;font-weight:500;">Contact:</span> '+escapeInvoiceHtml(phone):''}</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;justify-content:center;padding:8px 4px;">
+            <div style="font-family:'Allura',cursive;font-size:32px;color:#c89548;line-height:1;transform:rotate(-3deg);">Thank you for your business!</div>
+          </div>
+        </div>
+
+        <!-- Items table -->
+        <table style="width:100%;border-collapse:separate;border-spacing:0;margin-top:4px;border-radius:6px;overflow:hidden;border:1px solid #d4b889;">
+          <thead>
+            <tr style="background:#c89548;">
+              <th style="padding:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#fff;text-align:center;width:5%;border-right:1px solid rgba(255,255,255,0.25);">No.</th>
+              <th style="padding:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#fff;text-align:left;border-right:1px solid rgba(255,255,255,0.25);">Description</th>
+              <th style="padding:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#fff;text-align:center;width:7%;border-right:1px solid rgba(255,255,255,0.25);">Qty</th>
+              <th style="padding:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#fff;text-align:right;width:13%;border-right:1px solid rgba(255,255,255,0.25);">Unit Price</th>
+              <th style="padding:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#fff;text-align:right;width:14%;border-right:1px solid rgba(255,255,255,0.25);">Taxable</th>
+              <th style="padding:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#fff;text-align:right;width:14%;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+
+        <!-- Totals + Payment -->
+        <div style="display:grid;grid-template-columns:1fr 0.85fr;gap:22px;margin-top:16px;">
+          <!-- Payment left -->
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;color:#b88838;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">
+              <div style="width:22px;height:22px;border-radius:4px;background:#f3e6cc;color:#b88838;display:flex;align-items:center;justify-content:center;font-size:12px;">✉</div>
+              PAYMENT METHODS
+            </div>
+            <div style="font-size:10.5px;color:#6b5340;margin-bottom:6px;">${SELLER_INFO.payment}</div>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#3d2817;"><div style="width:22px;height:22px;border-radius:4px;background:#f3e6cc;color:#b88838;display:flex;align-items:center;justify-content:center;font-size:11px;">⇄</div>Bank Transfer</div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#3d2817;"><div style="width:22px;height:22px;border-radius:4px;background:#f3e6cc;color:#b88838;display:flex;align-items:center;justify-content:center;font-size:11px;">⌬</div>UPI</div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#3d2817;"><div style="width:22px;height:22px;border-radius:4px;background:#f3e6cc;color:#b88838;display:flex;align-items:center;justify-content:center;font-size:11px;">▭</div>Credit / Debit Card</div>
+            </div>
+          </div>
+          <!-- Totals right -->
+          <div style="background:#fdfbf7;border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 14px;border-bottom:1px solid #f3e6cc;font-size:11px;"><span style="color:#6b5340;">Taxable Value</span><span style="font-variant-numeric:tabular-nums;color:#3d2817;font-weight:500;">${SELLER_INFO.currency} ${invoiceFmt(taxable)}</span></div>
+            ${taxLines}
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 14px;font-size:11px;"><span style="color:#6b5340;">Shipping</span><span style="color:#8a6f55;font-style:italic;">included</span></div>
+            <div style="background:#fbe8c2;border-radius:6px;margin-top:6px;padding:14px;display:flex;justify-content:space-between;align-items:baseline;">
+              <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.1em;font-weight:700;color:#3d2817;">TOTAL DUE</span>
+              <span style="font-size:19px;font-weight:800;color:#3d2817;font-variant-numeric:tabular-nums;">${SELLER_INFO.currency} ${invoiceFmt(total)}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Amount in words -->
+        <div style="margin-top:12px;padding:8px 12px;background:#fdfbf7;border-left:3px solid #c89548;font-size:10.5px;border-radius:0 4px 4px 0;">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#b88838;margin-bottom:2px;font-weight:700;">Amount in Words</div>
+          <div style="color:#3d2817;font-weight:600;">${invoiceNumberToWords(Math.round(total))} only</div>
+        </div>
+
+        ${row.awb ? `
+        <div style="margin-top:6px;padding:8px 12px;background:#fdfbf7;border-left:3px solid #c89548;font-size:10.5px;border-radius:0 4px 4px 0;">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#b88838;margin-bottom:2px;font-weight:700;">${awbLabel}</div>
+          <div style="color:#3d2817;font-weight:600;font-family:monospace;">${escapeInvoiceHtml(String(row.awb))}</div>
+        </div>` : ''}
+
+        <!-- Signatory -->
+        <div style="margin-top:14px;text-align:right;">
+          <div style="font-size:10.5px;color:#6b5340;margin-bottom:4px;">For <strong style="color:#3d2817;">${SELLER_INFO.company}</strong></div>
+          <div style="height:44px;"></div>
+          <div style="font-size:10.5px;color:#3d2817;font-weight:600;border-top:1px solid #d4b889;padding-top:4px;display:inline-block;min-width:140px;">${SELLER_INFO.signatory}</div>
+        </div>
+
+        <div style="margin-top:10px;font-size:11px;color:#6b5340;text-align:center;font-style:italic;">We truly appreciate your business and look forward to serving you again.</div>
+        <div style="font-family:'Allura',cursive;font-size:26px;color:#c89548;text-align:center;line-height:1;margin-top:-2px;">Thank you!</div>
+      </div>
+
+      <!-- Bottom strip -->
+      <div style="margin-top:18px;background:#f9efde;padding:12px 16mm;display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;font-size:10.5px;color:#3d2817;">
+        <div></div>
+        <div style="display:flex;align-items:center;gap:8px;justify-content:center;"></div>
+        <div></div>
+      </div>
+      <div style="margin-top:10px;font-size:9.5px;color:#8a6f55;line-height:1.5;text-align:center;padding:0 18mm;">${SELLER_INFO.declaration}</div>
+    </div>`;
+}
+
+/* Generate a single invoice as PDF bytes using html2canvas + jsPDF */
+async function generateInvoicePdf(row){
+  if(typeof window.jspdf === 'undefined'){
+    throw new Error('jsPDF not loaded — invoice generation unavailable');
+  }
+  if(typeof window.html2canvas === 'undefined'){
+    throw new Error('html2canvas not loaded — invoice generation unavailable');
   }
 
-  // ── SIGNATURE ──
-  const sigY=trY+42;
-  t('For ',422,sigY,{s:7.5,f:fR,c:DARK});
-  t(SELLER.name,436,sigY,{s:7.5,f:fB,c:DARK});
-  t(SELLER.name,447,sigY+14,{s:7,f:fB,c:GOLD});
-  ln(447,sigY+28,557,sigY+28,{c:MID,w:0.5});
-  t('PARTNER',517,sigY+35,{s:7,f:fB,c:DARK});
-  t('Partner', 522,sigY+46,{s:7,f:fR,c:DARK});
+  const html = buildInvoiceHtml(row);
 
-  // ── FOOTER ──
-  t('We truly appreciate your business and look forward to serving you again.',163,sigY+60,{s:7,f:fI,c:MID});
-  t('Thank',260,sigY+70,{s:14,f:fBI,c:GOLD});
-  t(' you!',289,sigY+70,{s:14,f:fBI,c:GOLD});
+  // Create a temporary container off-screen
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed;top:0;left:-99999px;z-index:-1;background:white;';
+  container.innerHTML = html;
+  document.body.appendChild(container);
 
-  // ── DECLARATION ──
-  t('We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',108,755,{s:6.5,f:fR,c:MID});
+  // Wait for fonts and layout
+  await document.fonts.ready;
+  await new Promise(r => requestAnimationFrame(()=>requestAnimationFrame(r)));
 
-  return await doc.save();
+  try {
+    const pageEl = container.firstElementChild;
+
+    const canvas = await html2canvas(pageEl, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#fdfbf7',
+      logging: false,
+      windowWidth: pageEl.scrollWidth,
+      windowHeight: pageEl.scrollHeight,
+    });
+
+    const {jsPDF} = window.jspdf;
+    const pdf = new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true});
+    const pdfW = 210, pdfH = 297;
+    const imgH = (canvas.height * pdfW) / canvas.width;
+
+    if(imgH <= pdfH + 10){
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.92),'JPEG',0,0,pdfW,Math.min(imgH,pdfH));
+    } else {
+      const pxPerMm = canvas.width / pdfW;
+      const sliceH = Math.floor(pdfH * pxPerMm);
+      const slices = Math.ceil(canvas.height / sliceH);
+      for(let i=0;i<slices;i++){
+        const sy = i * sliceH;
+        const sh = Math.min(sliceH, canvas.height - sy);
+        const sc = document.createElement('canvas');
+        sc.width = canvas.width; sc.height = sh;
+        const ctx = sc.getContext('2d');
+        ctx.fillStyle = '#fdfbf7';
+        ctx.fillRect(0,0,sc.width,sc.height);
+        ctx.drawImage(canvas,0,sy,canvas.width,sh,0,0,canvas.width,sh);
+        if(i>0) pdf.addPage();
+        pdf.addImage(sc.toDataURL('image/jpeg',0.92),'JPEG',0,0,pdfW,sh/pxPerMm);
+      }
+    }
+
+    // Return as Uint8Array for mergePdfs compatibility
+    const blob = pdf.output('blob');
+    const buf = await blob.arrayBuffer();
+    return new Uint8Array(buf);
+
+  } finally {
+    document.body.removeChild(container);
+  }
 }
+
 async function generateInvoicesPdf(rows){
-  const {PDFDocument}=PDFLib;
-  const merged=await PDFDocument.create();
+  // Generate individually then merge via pdf-lib
+  const {PDFDocument} = PDFLib;
+  const merged = await PDFDocument.create();
   for(const row of rows){
     try{
-      const bytes=await generateInvoicePdf(row);
-      const src=await PDFDocument.load(bytes);
-      const pages=await merged.copyPages(src,src.getPageIndices());
+      const bytes = await generateInvoicePdf(row);
+      const src = await PDFDocument.load(bytes, {ignoreEncryption:true});
+      const pages = await merged.copyPages(src, src.getPageIndices());
       pages.forEach(p=>merged.addPage(p));
     } catch(err){
-      console.warn('[TrackLens][Invoice] Failed for',row.orderId,':',err.message);
+      console.warn('[TrackLens][Invoice] Failed for', row.orderId, ':', err.message);
     }
   }
   return await merged.save();
