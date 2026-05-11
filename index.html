@@ -4950,7 +4950,7 @@ async function cargoVerifyToken(){
   const fmt = d => d.toISOString().slice(0, 10);
   const qs = new URLSearchParams({
     page: '1',
-    page_size: '1',
+    page_size: '50',
     created_at_after: fmt(yearAgo),
     created_at_before: fmt(today),
     entity: 'shipment'
@@ -4958,9 +4958,16 @@ async function cargoVerifyToken(){
   const data = await cargoFetch('/shipment-list/?' + qs.toString());
   const verifiedAt = new Date().toISOString();
   const list = extractShipmentList(data);
+  // Cargo often returns count=null — use pagination to estimate total
+  const pagination = data?.meta?.pagination || data?.pagination || {};
+  const totalPages = pagination.total_pages || pagination.pages || null;
+  const pageSize   = 50;
+  const totalShipments = data?.count != null ? data.count
+    : totalPages ? totalPages * pageSize   // estimate from pages
+    : list.length > 0 ? `${list.length}+ (count not returned by API)` : 0;
   const accountInfo = {
     verifiedAt,
-    totalShipments: (data && data.count != null) ? data.count : list.length,
+    totalShipments,
     sampleResponseKeys: Object.keys(data || {})
   };
   State.tokens.cargo = { verifiedAt, accountInfo };
@@ -7219,27 +7226,29 @@ async function runTrackingSync(onProgress){
  */
 async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
   const statusMap = {};
-  let page = 1;
   let totalFetched = 0;
 
-  // No status filter = all shipments, same as the "All Shipments" tab in Cargo panel
-  const firstQs = new URLSearchParams({
-    page: '1', page_size: '100', entity: 'shipment',
+  // No status filter = all shipments (same as "All Shipments" tab in Cargo panel).
+  // page_size=200 to minimise number of round trips.
+  const baseQs = {
+    page_size: '200', entity: 'shipment',
     created_at_after: dateFrom, created_at_before: dateTo
-  });
-  let path = '/shipment-list/?' + firstQs.toString();
+  };
 
-  while(path){
-    let data;
+  function extractNextPath(data){
+    const next = data?.meta?.pagination?.next
+               || data?.next
+               || data?.pagination?.next
+               || null;
+    if(!next) return null;
     try{
-      data = await cargoFetch(path);
-    } catch(err){
-      console.warn('[TrackLens][Sync] Cargo page', page, 'failed:', err.message);
-      break;
-    }
-    const list = extractShipmentList(data);
-    if(page === 1) console.log('[TrackLens][Sync] Cargo all-shipments: page1 returned', list.length, 'rows');
+      const u = new URL(next);
+      return u.pathname.replace('/api','') + u.search;
+    } catch(e){ return null; }
+  }
 
+  function processPage(data){
+    const list = extractShipmentList(data);
     list.forEach(s => {
       const awb = String(s.waybill_no || '').trim();
       if(awb.length > 5){
@@ -7251,21 +7260,54 @@ async function fetchCargoTrackingBulk(dateFrom, dateTo, onProgress, report){
         totalFetched++;
       }
     });
+    return list.length;
+  }
 
-    // Follow next URL — Cargo API uses next/previous links, count is always null
-    const nextFull = data?.meta?.pagination?.next || null;
-    if(nextFull && list.length > 0){
-      try{
-        const u = new URL(nextFull);
-        path = u.pathname.replace('/api','') + u.search;
-        page++;
-        await new Promise(r => setTimeout(r, 150));
-      } catch(e){ path = null; }
-    } else {
-      path = null;
+  // Fetch page 1 to get total pages
+  const firstData = await cargoFetch('/shipment-list/?' + new URLSearchParams({...baseQs, page:'1'}).toString());
+  const firstCount = processPage(firstData);
+  console.log('[TrackLens][Sync] Cargo page 1:', firstCount, 'shipments');
+
+  // Determine total pages from pagination meta
+  const pagination = firstData?.meta?.pagination || firstData?.pagination || {};
+  const totalPages = pagination.total_pages || pagination.pages || null;
+  console.log('[TrackLens][Sync] Cargo total pages:', totalPages || 'unknown (will follow next links)');
+
+  if(onProgress) onProgress(0, 0, `Cargo: fetching ${totalPages ? totalPages + ' pages' : 'all pages'}…`);
+
+  if(totalPages && totalPages > 1){
+    // Fetch remaining pages — batch 3 at a time to stay within rate limits
+    const remainingPages = Array.from({length: totalPages - 1}, (_, i) => i + 2);
+    for(let i = 0; i < remainingPages.length; i += 3){
+      const batch = remainingPages.slice(i, i + 3);
+      await Promise.all(batch.map(async pageNum => {
+        try{
+          const data = await cargoFetch('/shipment-list/?' + new URLSearchParams({...baseQs, page: String(pageNum)}).toString());
+          const n = processPage(data);
+          console.log(`[TrackLens][Sync] Cargo page ${pageNum}: ${n} shipments`);
+        } catch(err){
+          console.warn(`[TrackLens][Sync] Cargo page ${pageNum} failed:`, err.message);
+        }
+      }));
+      if(i + 3 < remainingPages.length) await new Promise(r => setTimeout(r, 100));
+    }
+  } else {
+    // No total_pages — follow next links sequentially
+    let nextPath = extractNextPath(firstData);
+    let page = 2;
+    while(nextPath){
+      let data;
+      try{ data = await cargoFetch(nextPath); }
+      catch(err){ console.warn('[TrackLens][Sync] Cargo page', page, 'failed:', err.message); break; }
+      const n = processPage(data);
+      console.log(`[TrackLens][Sync] Cargo page ${page}: ${n} shipments`);
+      nextPath = n > 0 ? extractNextPath(data) : null;
+      page++;
+      await new Promise(r => setTimeout(r, 80));
     }
   }
-  console.log('[TrackLens][Sync] Cargo: fetched', totalFetched, 'shipments across', page, 'pages,', Object.keys(statusMap).length, 'unique AWBs');
+
+  console.log('[TrackLens][Sync] Cargo complete:', totalFetched, 'shipments,', Object.keys(statusMap).length, 'unique AWBs');
   return statusMap;
 }
 
