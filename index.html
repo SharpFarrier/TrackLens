@@ -5266,6 +5266,42 @@ function getBluedartCreds(){
 /* Fetch tracking status for one AWB from Bluedart.
  * Returns { awb, status, statusCode, lastEvent, events[], isError, errorMsg }
  */
+/* E-Signature handlers */
+function handleSignatureUpload(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  if(file.size > 500*1024){ toast('Signature image too large (max 500KB)', 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    State.settings.signature_b64 = ev.target.result;
+    persistLocal();
+    renderSignaturePreview();
+    toast('Signature saved', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeSignature(){
+  if(!confirm('Remove signature from invoices?')) return;
+  State.settings.signature_b64 = '';
+  persistLocal();
+  renderSignaturePreview();
+  toast('Signature removed', 'success');
+}
+
+function renderSignaturePreview(){
+  const previewEl = $('#signaturePreview');
+  const removeBtn = $('#removeSignatureBtn');
+  if(!previewEl) return;
+  if(State.settings.signature_b64){
+    previewEl.innerHTML = '<img src="'+State.settings.signature_b64+'" style="max-height:60px;max-width:240px;border:1px solid var(--line);border-radius:4px;padding:4px;background:white;">';
+    if(removeBtn) removeBtn.style.display = 'inline-flex';
+  } else {
+    previewEl.innerHTML = '<span style="font-size:11px;color:var(--ink-3)">No signature uploaded — invoice will show a blank line</span>';
+    if(removeBtn) removeBtn.style.display = 'none';
+  }
+}
+
 /* Bluedart JWT cache — shared across all calls */
 const _bdJwt = { token: null, expiresAt: 0 };
 
@@ -6714,6 +6750,7 @@ function bindSettings(){
     }
   });
 
+  renderSignaturePreview();
   const testBtn = $('#testAwbBtn');
   if(testBtn) testBtn.addEventListener('click', runSingleAwbTest);
   const testInput = $('#testAwbInput');
@@ -8054,7 +8091,7 @@ function buildInvoiceHtml(row){
         <!-- Signatory -->
         <div style="margin-top:14px;text-align:right;">
           <div style="font-size:10.5px;color:#6b5340;margin-bottom:4px;">For <strong style="color:#3d2817;">${SELLER_INFO.company}</strong></div>
-          <div style="height:44px;"></div>
+          ${State.settings.signature_b64 ? '<img src="'+State.settings.signature_b64+'" style="max-height:44px;margin:4px 0 4px auto;display:block;">' : '<div style="height:44px;"></div>'}
           <div style="font-size:10.5px;color:#3d2817;font-weight:600;border-top:1px solid #d4b889;padding-top:4px;display:inline-block;min-width:140px;">${SELLER_INFO.signatory}</div>
         </div>
 
