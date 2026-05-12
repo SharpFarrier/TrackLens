@@ -5361,9 +5361,11 @@ async function bluedartTrackAwbApi(awb){
   const creds = getBluedartCreds();
   const jwt   = await getBluedartJwt();
   const base  = getProxyBase();
+  // JWT auth handles auth — loginid + lickey still needed to identify the account
+  // pwd removed: not needed when using JWT token auth
   const params = new URLSearchParams({
     handler: 'tnt', action: 'custawbquery',
-    loginid: creds.loginId, pwd: creds.password,
+    loginid: creds.loginId,
     awb: 'awb', numbers: String(awb).trim(),
     format: 'xml', lickey: creds.licenceKey,
     verno: '1.3', scan: '1',
@@ -5517,27 +5519,71 @@ function parseBluedartTrackingXml(awb, xmlText){
       return { awb, isError: true, errorMsg, status: 'error', events: [] };
     }
 
-    // Current status
-    const statusCode = doc.querySelector('StatusCode')?.textContent?.trim() || '';
-    const statusDesc = doc.querySelector('StatusDescription')?.textContent?.trim() || '';
-    const statusDate = doc.querySelector('StatusDate')?.textContent?.trim() || '';
-    const statusTime = doc.querySelector('StatusTime')?.textContent?.trim() || '';
+    // Current status — Bluedart API uses multiple possible tag names
+    const statusCode = doc.querySelector('StatusCode')?.textContent?.trim()
+                    || doc.querySelector('Status')?.textContent?.trim()
+                    || doc.querySelector('ShipmentStatus')?.textContent?.trim() || '';
+    const statusDesc = doc.querySelector('StatusDescription')?.textContent?.trim()
+                    || doc.querySelector('StatusType')?.textContent?.trim()
+                    || doc.querySelector('LatestStatus')?.textContent?.trim() || '';
+    const statusDate = doc.querySelector('StatusDate')?.textContent?.trim()
+                    || doc.querySelector('PickUpDate')?.textContent?.trim() || '';
+    const statusTime = doc.querySelector('StatusTime')?.textContent?.trim()
+                    || doc.querySelector('PickUpTime')?.textContent?.trim() || '';
 
-    // Scan history
+    // Scan history — try multiple element/field names
     const events = [];
-    doc.querySelectorAll('ScanDetail').forEach(scan => {
-      events.push({
-        date:     scan.querySelector('ScanDate')?.textContent?.trim() || '',
-        time:     scan.querySelector('ScanTime')?.textContent?.trim() || '',
-        desc:     scan.querySelector('StatusDescription')?.textContent?.trim() || '',
-        scan:     scan.querySelector('Scan')?.textContent?.trim() || '',
-        location: scan.querySelector('ScannedLocation')?.textContent?.trim() || ''
-      });
-    });
+    const scanNodes = doc.querySelectorAll('ScanDetail');
+    const shipNodes = doc.querySelectorAll('ShipmentDetail, Shipment');
 
-    // Map Bluedart status codes to TrackLens internal statuses
-    const tlStatus = mapBluedartStatus(statusCode, statusDesc);
-    const lastEvent = statusDesc || (events[0]?.desc) || 'No updates';
+    if(scanNodes.length > 0){
+      scanNodes.forEach(scan => {
+        // TSD doc: status text is in <Scan> tag, not <StatusDescription>
+        const scanText = scan.querySelector('Scan')?.textContent?.trim() || '';
+        events.push({
+          date:     scan.querySelector('ScanDate')?.textContent?.trim() || '',
+          time:     scan.querySelector('ScanTime')?.textContent?.trim() || '',
+          desc:     scanText,
+          scan:     scanText,
+          scanType: scan.querySelector('ScanType')?.textContent?.trim() || '',
+          location: scan.querySelector('ScannedLocation')?.textContent?.trim() || ''
+        });
+      });
+    }
+
+    // API response uses Shipment > Scans structure
+    if(events.length === 0){
+      doc.querySelectorAll('Scans').forEach(scan => {
+        events.push({
+          date:     scan.querySelector('ScanDate')?.textContent?.trim()
+                 || scan.querySelector('Date')?.textContent?.trim() || '',
+          time:     scan.querySelector('ScanTime')?.textContent?.trim()
+                 || scan.querySelector('Time')?.textContent?.trim() || '',
+          desc:     scan.querySelector('ScanDescription')?.textContent?.trim()
+                 || scan.querySelector('Description')?.textContent?.trim()
+                 || scan.querySelector('StatusDescription')?.textContent?.trim() || '',
+          scan:     scan.querySelector('Scan')?.textContent?.trim() || '',
+          location: scan.querySelector('ScannedLocation')?.textContent?.trim()
+                 || scan.querySelector('Location')?.textContent?.trim() || ''
+        });
+      });
+    }
+
+    // If still no events, try grabbing all child text from Shipment node
+    if(events.length === 0 && doc.querySelector('Shipment')){
+      const shipment = doc.querySelector('Shipment');
+      // Extract latest status from shipment-level fields
+      const svcDesc = shipment.querySelector('StatusDescription')?.textContent?.trim()
+                   || shipment.querySelector('Status')?.textContent?.trim() || '';
+      if(svcDesc) events.push({
+        date: statusDate, time: statusTime, desc: svcDesc, scan: '', location: ''
+      });
+    }
+
+    // If no statusDesc from header tags, derive from most recent scan event
+    const effectiveDesc = statusDesc || events[0]?.desc || events[0]?.scan || '';
+    const tlStatus = mapBluedartStatus(statusCode, effectiveDesc);
+    const lastEvent = effectiveDesc || 'No updates';
 
     return { awb, isError: false, status: tlStatus, statusCode, statusDesc, statusDate, statusTime, lastEvent, events };
   } catch(err){
@@ -5597,6 +5643,10 @@ function mapBluedartStatus(code, desc){
   // NDR / undelivered
   if(c === 'ND' || d.includes('undelivered') || d.includes('ndr') ||
      d.includes('delivery attempted') || d.includes('door locked'))  return 'ndr';
+
+  // API-specific: surface line / air = in transit
+  if(d.includes('surface line') || d.includes('air line') ||
+     d.includes('manifested') || d.includes('booked'))               return 'booked';
 
   // Booked / manifested — label created, not yet collected → no advance
   if(d.includes('booked') || d.includes('manifested'))               return 'booked';
