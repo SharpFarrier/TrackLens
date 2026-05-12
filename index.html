@@ -5580,10 +5580,12 @@ function parseBluedartTrackingXml(awb, xmlText){
       });
     }
 
-    // If no statusDesc from header tags, derive from most recent scan event
-    const effectiveDesc = statusDesc || events[0]?.desc || events[0]?.scan || '';
-    const tlStatus = mapBluedartStatus(statusCode, effectiveDesc);
-    const lastEvent = effectiveDesc || 'No updates';
+    // statusDesc may contain short code (e.g. "DL") or full description
+    // Pass it as both code and desc so mapBluedartStatus can match either way
+    const effectiveCode = statusCode || (statusDesc?.length <= 3 ? statusDesc : '');
+    const effectiveDesc = (statusDesc?.length > 3 ? statusDesc : '') || events[0]?.desc || events[0]?.scan || '';
+    const tlStatus = mapBluedartStatus(effectiveCode, effectiveDesc);
+    const lastEvent = events[0]?.desc || events[0]?.scan || statusDesc || 'No updates';
 
     return { awb, isError: false, status: tlStatus, statusCode, statusDesc, statusDate, statusTime, lastEvent, events };
   } catch(err){
@@ -5614,11 +5616,11 @@ function mapBluedartStatus(code, desc){
   const d = (desc || '').toLowerCase();
   const c = (code || '').toUpperCase();
 
-  // Delivered
-  if(c === 'DL' || d.includes('delivered') && !d.includes('undelivered'))
-                                                                      return 'delivered';
+  // Delivered — handle both code 'DL' and description variants
+  if(c === 'DL' || d === 'dl' || d === 'delivered' ||
+     (d.includes('delivered') && !d.includes('undelivered')))         return 'delivered';
   // Out for delivery
-  if(c === 'OD' || d.includes('out for delivery'))                    return 'out_for_delivery';
+  if(c === 'OD' || d === 'od' || d.includes('out for delivery'))      return 'out_for_delivery';
 
   // RTO — check before 'in transit' so "RTO In Transit" hits here, not in_transit
   if(c === 'RTO' || d.includes('rto') ||
