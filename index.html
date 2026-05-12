@@ -5335,20 +5335,14 @@ async function getBluedartJwt(){
   if(!creds.apiKey || !creds.apiSecret) throw new Error('Bluedart API Key and API Secret required — add them in Settings → Courier APIs');
   const base = getProxyBase();
   console.log('[TrackLens][BD] Fetching JWT with API Key/Secret...');
-  // Correct endpoint per TSD + MCP server source:
-  // POST /in/transportation/token/v1/login
-  // Try multiple formats since docs are inconsistent
+  // Bluedart auth: GET /in/transportation/token/v1/login
+  // Credentials go as headers only — no body
   const resp = await fetch(`${base}/bluedart/in/transportation/token/v1/login`, {
-    method: 'POST',
+    method: 'GET',
     headers: {
-      'Content-Type':  'application/json',
-      'ClientID':      creds.apiKey,
-      'ClientSecret':  creds.apiSecret,
-    },
-    body: JSON.stringify({
-      ClientID:     creds.apiKey,
-      ClientSecret: creds.apiSecret,
-    })
+      'ClientID':     creds.apiKey,
+      'ClientSecret': creds.apiSecret,
+    }
   });
   const text = await resp.text();
   console.log('[TrackLens][BD] Auth response:', text.slice(0, 300));
